@@ -75,6 +75,21 @@ pub fn build(b: *std.Build) !void {
         },
     }
 
+    if (target.getOsTag() != .windows) {
+        try cflags.append("-DROCKSDB_PLATFORM_POSIX");
+        try cflags.append("-DROCKSDB_LIB_IO_POSIX");
+
+        lib.addCSourceFiles(.{
+            .files = &.{
+                "rocksdb/port/port_posix.cc",
+                "rocksdb/env/env_posix.cc",
+                "rocksdb/env/fs_posix.cc",
+                "rocksdb/env/io_posix.cc",
+            },
+            .flags = cflags.items,
+        });
+    }
+
     lib.addCSourceFiles(.{
         .files = &.{
             "rocksdb/cache/cache.cc",
@@ -428,6 +443,9 @@ pub fn build(b: *std.Build) !void {
         },
         else => {},
     }
+
+    const have_jemalloc = b.option(bool, "JEMALLOC", "Use Jemalloc");
+
     switch (target.getOsTag()) {
         .windows => {
             lib.addCSourceFiles(.{
@@ -441,22 +459,22 @@ pub fn build(b: *std.Build) !void {
                 },
                 .flags = cflags.items,
             });
+            if (have_jemalloc orelse false) {
+                lib.addCSourceFiles(.{
+                    .files = &.{
+                        "rocksdb/port/win/win_jemalloc.cc",
+                    },
+                    .flags = cflags.items,
+                });
+            }
             lib.linkSystemLibrary("shlwapi");
             lib.linkSystemLibrary("rpcrt4");
         },
+        .macos => {
+            lib.linkFramework("Foundation");
+            lib.linkSystemLibrary("objc");
+        },
         else => {},
-    }
-    const have_jemalloc = b.option(bool, "JEMALLOC", "Use Jemalloc");
-    if (have_jemalloc orelse false) {
-        lib.addCSourceFiles(.{
-            .files = &.{
-                "rocksdb/port/port_posix.cc",
-                "rocksdb/env/env_posix.cc",
-                "rocksdb/env/fs_posix.cc",
-                "rocksdb/env/io_posix.cc",
-            },
-            .flags = cflags.items,
-        });
     }
 
     b.installArtifact(lib);
