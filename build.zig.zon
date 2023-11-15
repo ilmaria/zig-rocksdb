@@ -1,0 +1,10 @@
+.{
+    .name = "zig-rocksdb",
+    .version = "8.6.7",
+    .paths = .{
+        "rocksdb",
+        "src",
+        "build.zig",
+        "build.zig.zon",
+    },
+}

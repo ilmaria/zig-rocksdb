@@ -273,10 +273,9 @@ class ConcurrentCacheReservationManager
     std::size_t total_mem_used = cache_res_mgr_->GetTotalMemoryUsed();
     Status s;
     if (!increase) {
-      s = cache_res_mgr_->UpdateCacheReservation(
-          (total_mem_used > memory_used_delta)
-              ? (total_mem_used - memory_used_delta)
-              : 0);
+      assert(total_mem_used >= memory_used_delta);
+      s = cache_res_mgr_->UpdateCacheReservation(total_mem_used -
+                                                 memory_used_delta);
     } else {
       s = cache_res_mgr_->UpdateCacheReservation(total_mem_used +
                                                  memory_used_delta);

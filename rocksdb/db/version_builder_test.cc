@@ -38,8 +38,7 @@ class VersionBuilderTest : public testing::Test {
         mutable_cf_options_(options_),
         vstorage_(&icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
                   nullptr, false, EpochNumberRequirement::kMustPresent,
-                  ioptions_.clock, options_.bottommost_file_compaction_delay,
-                  OffpeakTimeInfo(options_.daily_offpeak_time_utc)),
+                  ioptions_.clock, options_.bottommost_file_compaction_delay),
         file_num_(1) {
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
     size_being_compacted_.resize(options_.num_levels);
@@ -203,8 +202,7 @@ TEST_F(VersionBuilderTest, ApplyAndSaveTo) {
 
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, nullptr, false,
-      EpochNumberRequirement::kMightMissing, nullptr, 0,
-      OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      EpochNumberRequirement::kMightMissing, nullptr, 0);
   ASSERT_OK(version_builder.Apply(&version_edit));
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
@@ -255,8 +253,7 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic) {
 
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, nullptr, false,
-      EpochNumberRequirement::kMightMissing, nullptr, 0,
-      OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      EpochNumberRequirement::kMightMissing, nullptr, 0);
   ASSERT_OK(version_builder.Apply(&version_edit));
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
@@ -311,8 +308,7 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic2) {
 
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, nullptr, false,
-      EpochNumberRequirement::kMightMissing, nullptr, 0,
-      OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      EpochNumberRequirement::kMightMissing, nullptr, 0);
   ASSERT_OK(version_builder.Apply(&version_edit));
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
@@ -369,8 +365,7 @@ TEST_F(VersionBuilderTest, ApplyMultipleAndSaveTo) {
 
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, nullptr, false,
-      EpochNumberRequirement::kMightMissing, nullptr, 0,
-      OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      EpochNumberRequirement::kMightMissing, nullptr, 0);
   ASSERT_OK(version_builder.Apply(&version_edit));
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
@@ -393,8 +388,7 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
 
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, nullptr, false,
-      EpochNumberRequirement::kMightMissing, nullptr, 0,
-      OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      EpochNumberRequirement::kMightMissing, nullptr, 0);
 
   VersionEdit version_edit;
   version_edit.AddFile(
@@ -563,7 +557,7 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
@@ -708,7 +702,7 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAndDeletion) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
@@ -753,7 +747,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
@@ -893,7 +887,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
@@ -967,7 +961,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
@@ -1148,7 +1142,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
@@ -1197,7 +1191,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   VersionStorageInfo newer_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &new_vstorage,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   ASSERT_OK(second_builder.SaveTo(&newer_vstorage));
 
@@ -1284,7 +1278,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesToConcurrentJobs) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
@@ -1388,7 +1382,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
@@ -1428,7 +1422,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesInconsistentLinks) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   const Status s = builder.SaveTo(&new_vstorage);
   ASSERT_TRUE(s.IsCorruption());
@@ -1470,7 +1464,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesAllGarbage) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   const Status s = builder.SaveTo(&new_vstorage);
   ASSERT_TRUE(s.IsCorruption());
@@ -1520,7 +1514,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesAllGarbageLinkedSsts) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   const Status s = builder.SaveTo(&new_vstorage);
   ASSERT_TRUE(s.IsCorruption());
@@ -1684,7 +1678,7 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
-      0, OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      0);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
@@ -1736,8 +1730,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   VersionStorageInfo new_vstorage(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, nullptr,
       true /* force_consistency_checks */,
-      EpochNumberRequirement::kMightMissing, nullptr, 0,
-      OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      EpochNumberRequirement::kMightMissing, nullptr, 0);
   ASSERT_OK(version_builder.Apply(&version_edit));
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
@@ -1748,8 +1741,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   VersionStorageInfo new_vstorage2(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, nullptr,
       true /* force_consistency_checks */,
-      EpochNumberRequirement::kMightMissing, nullptr, 0,
-      OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      EpochNumberRequirement::kMightMissing, nullptr, 0);
   ASSERT_NOK(version_builder2.Apply(&version_edit));
 
   UnrefFilesInVersion(&new_vstorage);
@@ -1788,8 +1780,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForL0FilesSortedByEpochNumber) {
   VersionStorageInfo new_vstorage_1(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
       nullptr /* src_vstorage */, true /* force_consistency_checks */,
-      EpochNumberRequirement::kMightMissing, nullptr, 0,
-      OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      EpochNumberRequirement::kMightMissing, nullptr, 0);
 
   ASSERT_OK(version_builder_1.Apply(&version_edit_1));
   s = version_builder_1.SaveTo(&new_vstorage_1);
@@ -1827,8 +1818,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForL0FilesSortedByEpochNumber) {
   VersionStorageInfo new_vstorage_2(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
       nullptr /* src_vstorage */, true /* force_consistency_checks */,
-      EpochNumberRequirement::kMightMissing, nullptr, 0,
-      OffpeakTimeInfo(options_.daily_offpeak_time_utc));
+      EpochNumberRequirement::kMightMissing, nullptr, 0);
 
   ASSERT_OK(version_builder_2.Apply(&version_edit_2));
   s = version_builder_2.SaveTo(&new_vstorage_2);

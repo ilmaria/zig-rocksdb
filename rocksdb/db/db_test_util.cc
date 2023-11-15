@@ -699,7 +699,6 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
 }
 
 Status DBTestBase::ReadOnlyReopen(const Options& options) {
-  Close();
   MaybeInstallTimeElapseOnlySleep(options);
   return DB::OpenForReadOnly(options, dbname_, &db_);
 }
@@ -943,7 +942,6 @@ std::string DBTestBase::Contents(int cf) {
     EXPECT_EQ(IterStatus(iter), forward[forward.size() - matched - 1]);
     matched++;
   }
-  EXPECT_OK(iter->status());
   EXPECT_EQ(matched, forward.size());
 
   delete iter;
@@ -1366,7 +1364,6 @@ std::string DBTestBase::IterStatus(Iterator* iter) {
   if (iter->Valid()) {
     result = iter->key().ToString() + "->" + iter->value().ToString();
   } else {
-    EXPECT_OK(iter->status());
     result = "(invalid)";
   }
   return result;
@@ -1585,7 +1582,6 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
-    ASSERT_OK(iter->status());
     ASSERT_EQ(data_iter, true_data.end())
         << iter_cnt << " / " << true_data.size();
     delete iter;
@@ -1609,7 +1605,6 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
-    ASSERT_OK(iter->status());
     ASSERT_EQ(data_rev, true_data.rend())
         << iter_cnt << " / " << true_data.size();
 
@@ -1721,12 +1716,12 @@ TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
       cache_charge_increments_sum_(0) {}
 
 template <CacheEntryRole R>
-Status TargetCacheChargeTrackingCache<R>::Insert(
-    const Slice& key, ObjectPtr value, const CacheItemHelper* helper,
-    size_t charge, Handle** handle, Priority priority, const Slice& compressed,
-    CompressionType type) {
-  Status s = target_->Insert(key, value, helper, charge, handle, priority,
-                             compressed, type);
+Status TargetCacheChargeTrackingCache<R>::Insert(const Slice& key,
+                                                 ObjectPtr value,
+                                                 const CacheItemHelper* helper,
+                                                 size_t charge, Handle** handle,
+                                                 Priority priority) {
+  Status s = target_->Insert(key, value, helper, charge, handle, priority);
   if (helper == kCrmHelper) {
     if (last_peak_tracked_) {
       cache_charge_peak_ = 0;

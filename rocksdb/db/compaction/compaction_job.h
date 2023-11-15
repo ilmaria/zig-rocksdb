@@ -186,10 +186,7 @@ class CompactionJob {
 
   // REQUIRED: mutex held
   // Add compaction input/output to the current version
-  // Releases compaction file through Compaction::ReleaseCompactionFiles().
-  // Sets *compaction_released to true if compaction is released.
-  Status Install(const MutableCFOptions& mutable_cf_options,
-                 bool* compaction_released);
+  Status Install(const MutableCFOptions& mutable_cf_options);
 
   // Return the IO status
   IOStatus io_status() const { return io_status_; }
@@ -276,8 +273,7 @@ class CompactionJob {
                                     const Slice& next_table_min_key,
                                     const Slice* comp_start_user_key,
                                     const Slice* comp_end_user_key);
-  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options,
-                                  bool* compaction_released);
+  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options);
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);
   void UpdateCompactionJobStats(
@@ -350,7 +346,7 @@ class CompactionJob {
 
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
-  SeqnoToTimeMapping seqno_to_time_mapping_;
+  SeqnoToTimeMapping seqno_time_mapping_;
 
   // Minimal sequence number for preserving the time information. The time info
   // older than this sequence number won't be preserved after the compaction and

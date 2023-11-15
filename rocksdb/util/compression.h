@@ -1153,15 +1153,9 @@ inline bool LZ4_Compress(const CompressionInfo& info,
                  static_cast<int>(compression_dict.size()));
   }
 #if LZ4_VERSION_NUMBER >= 10700  // r129+
-  int acceleration;
-  if (info.options().level < 0) {
-    acceleration = -info.options().level;
-  } else {
-    acceleration = 1;
-  }
-  outlen = LZ4_compress_fast_continue(
-      stream, input, &(*output)[output_header_len], static_cast<int>(length),
-      compress_bound, acceleration);
+  outlen =
+      LZ4_compress_fast_continue(stream, input, &(*output)[output_header_len],
+                                 static_cast<int>(length), compress_bound, 1);
 #else  // up to r128
   outlen = LZ4_compress_limitedOutput_continue(
       stream, input, &(*output)[output_header_len], static_cast<int>(length),

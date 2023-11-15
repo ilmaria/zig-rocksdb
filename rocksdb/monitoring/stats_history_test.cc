@@ -185,8 +185,6 @@ TEST_F(StatsHistoryTest, GetStatsHistoryInMemory) {
 
 TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   constexpr int kPeriodSec = 1;
-  constexpr int kEstimatedOneSliceSize = 16000;
-
   Options options;
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
@@ -208,7 +206,6 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
     ASSERT_TRUE(iterator->key() == iterator->value());
   }
-  ASSERT_OK(iterator->status());
   delete iterator;
   ASSERT_OK(Flush());
   ASSERT_OK(Delete("sol"));
@@ -222,7 +219,6 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
     ASSERT_TRUE(iterator->key() == iterator->value());
   }
-  ASSERT_OK(iterator->status());
   delete iterator;
   ASSERT_OK(Flush());
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -246,12 +242,10 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   }
   size_t stats_history_size = dbfull()->TEST_EstimateInMemoryStatsHistorySize();
   ASSERT_GE(slice_count, kIterations - 1);
-  ASSERT_GE(stats_history_size, kEstimatedOneSliceSize);
-  // capping memory cost to roughly one slice's size
-  ASSERT_OK(dbfull()->SetDBOptions(
-      {{"stats_history_buffer_size", std::to_string(kEstimatedOneSliceSize)}}));
-  ASSERT_EQ(kEstimatedOneSliceSize,
-            dbfull()->GetDBOptions().stats_history_buffer_size);
+  ASSERT_GE(stats_history_size, 15000);
+  // capping memory cost at 15000 bytes since one slice is around 10000~15000
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "15000"}}));
+  ASSERT_EQ(15000, dbfull()->GetDBOptions().stats_history_buffer_size);
 
   // Wait for stats persist to finish
   for (int i = 0; i < kIterations; ++i) {
@@ -271,13 +265,9 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   }
   size_t stats_history_size_reopen =
       dbfull()->TEST_EstimateInMemoryStatsHistorySize();
-
-  // Only one slice can fit under the new stats_history_buffer_size
-  //
-  // If `slice_count == 0` when new statistics are added, consider increasing
-  // `kEstimatedOneSliceSize`
-  ASSERT_EQ(slice_count, 1);
-  ASSERT_TRUE(stats_history_size_reopen < 16000 &&
+  // only one slice can fit under the new stats_history_buffer_size
+  ASSERT_LT(slice_count, 2);
+  ASSERT_TRUE(stats_history_size_reopen < 15000 &&
               stats_history_size_reopen > 0);
   ASSERT_TRUE(stats_count_reopen < stats_count && stats_count_reopen > 0);
   Close();
@@ -290,7 +280,6 @@ int countkeys(Iterator* iter) {
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     count++;
   }
-  EXPECT_OK(iter->status());
   return count;
 }
 

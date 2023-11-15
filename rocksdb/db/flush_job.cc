@@ -100,7 +100,7 @@ FlushJob::FlushJob(
     Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
     const bool sync_output_directory, const bool write_manifest,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-    const SeqnoToTimeMapping& seqno_to_time_mapping, const std::string& db_id,
+    const SeqnoToTimeMapping& seqno_time_mapping, const std::string& db_id,
     const std::string& db_session_id, std::string full_history_ts_low,
     BlobFileCompletionCallback* blob_callback)
     : dbname_(dbname),
@@ -136,7 +136,7 @@ FlushJob::FlushJob(
       clock_(db_options_.clock),
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback),
-      db_impl_seqno_to_time_mapping_(seqno_to_time_mapping) {
+      db_impl_seqno_time_mapping_(seqno_time_mapping) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -851,11 +851,10 @@ Status FlushJob::WriteLevel0Table() {
   Status s;
 
   SequenceNumber smallest_seqno = mems_.front()->GetEarliestSequenceNumber();
-  if (!db_impl_seqno_to_time_mapping_.Empty()) {
-    // make a local copy, as the seqno_to_time_mapping from db_impl is not
-    // thread safe, which will be used while not holding the db_mutex.
-    seqno_to_time_mapping_ =
-        db_impl_seqno_to_time_mapping_.Copy(smallest_seqno);
+  if (!db_impl_seqno_time_mapping_.Empty()) {
+    // make a local copy, as the seqno_time_mapping from db_impl is not thread
+    // safe, which will be used while not holding the db_mutex.
+    seqno_to_time_mapping_ = db_impl_seqno_time_mapping_.Copy(smallest_seqno);
   }
 
   std::vector<BlobFileAddition> blob_file_additions;
@@ -1142,16 +1141,16 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
       cfd_->ioptions()->persist_user_defined_timestamps) {
     return;
   }
-  // Find the newest user-defined timestamps from all the flushed memtables.
   for (MemTable* m : mems_) {
     Slice table_newest_udt = m->GetNewestUDT();
-    if (cutoff_udt_.empty() ||
-        ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) > 0) {
-      if (!cutoff_udt_.empty()) {
-        assert(table_newest_udt.size() == cutoff_udt_.size());
-      }
-      cutoff_udt_.assign(table_newest_udt.data(), table_newest_udt.size());
+    // The picked Memtables should have ascending ID, and should have
+    // non-decreasing newest user-defined timestamps.
+    if (!cutoff_udt_.empty()) {
+      assert(table_newest_udt.size() == cutoff_udt_.size());
+      assert(ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) >= 0);
+      cutoff_udt_.clear();
     }
+    cutoff_udt_.assign(table_newest_udt.data(), table_newest_udt.size());
   }
 }
 
@@ -1167,13 +1166,16 @@ Status FlushJob::MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT() {
        ucmp->CompareTimestamp(cutoff_udt_, full_history_ts_low) < 0)) {
     return Status::OK();
   }
-  std::string new_full_history_ts_low;
   Slice cutoff_udt_slice = cutoff_udt_;
+  uint64_t cutoff_udt_ts = 0;
+  bool format_res = GetFixed64(&cutoff_udt_slice, &cutoff_udt_ts);
+  assert(format_res);
+  (void)format_res;
+  std::string new_full_history_ts_low;
   // TODO(yuzhangyu): Add a member to AdvancedColumnFamilyOptions for an
   //  operation to get the next immediately larger user-defined timestamp to
   //  expand this feature to other user-defined timestamp formats.
-  GetFullHistoryTsLowFromU64CutoffTs(&cutoff_udt_slice,
-                                     &new_full_history_ts_low);
+  PutFixed64(&new_full_history_ts_low, cutoff_udt_ts + 1);
   VersionEdit edit;
   edit.SetColumnFamily(cfd_->GetID());
   edit.SetFullHistoryTsLow(new_full_history_ts_low);

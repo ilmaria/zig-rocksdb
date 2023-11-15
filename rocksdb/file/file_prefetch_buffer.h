@@ -56,7 +56,6 @@ struct BufferInfo {
 
 enum class FilePrefetchBufferUsage {
   kTableOpenPrefetchTail,
-  kUserScanPrefetch,
   kUnknown,
 };
 
@@ -91,7 +90,6 @@ class FilePrefetchBuffer {
       uint64_t num_file_reads_for_auto_readahead = 0,
       uint64_t upper_bound_offset = 0, FileSystem* fs = nullptr,
       SystemClock* clock = nullptr, Statistics* stats = nullptr,
-      const std::function<void(uint64_t, size_t, size_t&)>& cb = nullptr,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
       : curr_(0),
         readahead_size_(readahead_size),
@@ -110,8 +108,7 @@ class FilePrefetchBuffer {
         clock_(clock),
         stats_(stats),
         usage_(usage),
-        upper_bound_offset_(upper_bound_offset),
-        readaheadsize_cb_(cb) {
+        upper_bound_offset_(upper_bound_offset) {
     assert((num_file_reads_ >= num_file_reads_for_auto_readahead_ + 1) ||
            (num_file_reads_ == 0));
     // If ReadOptions.async_io is enabled, data is asynchronously filled in
@@ -282,11 +279,6 @@ class FilePrefetchBuffer {
   // Callback function passed to underlying FS in case of asynchronous reads.
   void PrefetchAsyncCallback(const FSReadRequest& req, void* cb_arg);
 
-  void ResetUpperBoundOffset(uint64_t upper_bound_offset) {
-    upper_bound_offset_ = upper_bound_offset;
-    readahead_size_ = initial_auto_readahead_size_;
-  }
-
  private:
   // Calculates roundoff offset and length to be prefetched based on alignment
   // and data present in buffer_. It also allocates new buffer or refit tail if
@@ -329,6 +321,7 @@ class FilePrefetchBuffer {
   void ResetValues() {
     num_file_reads_ = 1;
     readahead_size_ = initial_auto_readahead_size_;
+    upper_bound_offset_ = 0;
   }
 
   // Called in case of implicit auto prefetching.
@@ -444,28 +437,6 @@ class FilePrefetchBuffer {
     }
   }
 
-  inline bool IsOffsetOutOfBound(uint64_t offset) {
-    if (upper_bound_offset_ > 0) {
-      return (offset >= upper_bound_offset_);
-    }
-    return false;
-  }
-
-  // Performs tuning to calculate readahead_size.
-  size_t ReadAheadSizeTuning(uint64_t offset, size_t n) {
-    UpdateReadAheadSizeForUpperBound(offset, n);
-
-    if (readaheadsize_cb_ != nullptr && readahead_size_ > 0) {
-      size_t updated_readahead_size = 0;
-      readaheadsize_cb_(offset, readahead_size_, updated_readahead_size);
-      if (readahead_size_ != updated_readahead_size) {
-        RecordTick(stats_, READAHEAD_TRIMMED);
-      }
-      return updated_readahead_size;
-    }
-    return readahead_size_;
-  }
-
   std::vector<BufferInfo> bufs_;
   // curr_ represents the index for bufs_ indicating which buffer is being
   // consumed currently.
@@ -512,6 +483,5 @@ class FilePrefetchBuffer {
   // ReadOptions.auto_readahead_size are set to trim readahead_size upto
   // upper_bound_offset_ during prefetching.
   uint64_t upper_bound_offset_ = 0;
-  std::function<void(uint64_t, size_t, size_t&)> readaheadsize_cb_;
 };
 }  // namespace ROCKSDB_NAMESPACE

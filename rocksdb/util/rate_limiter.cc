@@ -107,23 +107,6 @@ void GenericRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
       std::memory_order_relaxed);
 }
 
-Status GenericRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
-  if (single_burst_bytes <= 0) {
-    return Status::InvalidArgument(
-        "`single_burst_bytes` must be greater than 0");
-  }
-
-  MutexLock g(&request_mutex_);
-  SetSingleBurstBytesLocked(single_burst_bytes);
-  return Status::OK();
-}
-
-void GenericRateLimiter::SetSingleBurstBytesLocked(int64_t single_burst_bytes) {
-  refill_bytes_per_period_.store(single_burst_bytes, std::memory_order_relaxed);
-  refill_period_us_.store(CalculateRefillPeriodUsLocked(single_burst_bytes),
-                          std::memory_order_relaxed);
-}
-
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
@@ -137,8 +120,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     static const int kRefillsPerTune = 100;
     std::chrono::microseconds now(NowMicrosMonotonicLocked());
     if (now - tuned_time_ >=
-        kRefillsPerTune * std::chrono::microseconds(refill_period_us_.load(
-                              std::memory_order_relaxed))) {
+        kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
       Status s = TuneLocked();
       s.PermitUncheckedError();  //**TODO: What to do on error?
     }
@@ -188,7 +170,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         ++num_drains_;
         wait_until_refill_pending_ = true;
-        clock_->TimedWait(&r.cv, std::chrono::microseconds(wait_until));
+        r.cv.TimedWait(wait_until);
         TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:PostTimedWait",
                                  &time_until_refill_us);
         wait_until_refill_pending_ = false;
@@ -197,16 +179,16 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       // Whichever thread reaches here first performs duty (2) as described
       // above.
       RefillBytesAndGrantRequestsLocked();
-    }
-    if (r.request_bytes == 0) {
-      // If there is any remaining requests, make sure there exists at least
-      // one candidate is awake for future duties by signaling a front request
-      // of a queue.
-      for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
-        auto& queue = queue_[i];
-        if (!queue.empty()) {
-          queue.front()->cv.Signal();
-          break;
+      if (r.request_bytes == 0) {
+        // If there is any remaining requests, make sure there exists at least
+        // one candidate is awake for future duties by signaling a front request
+        // of a queue.
+        for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
+          std::deque<Req*> queue = queue_[i];
+          if (!queue.empty()) {
+            queue.front()->cv.Signal();
+            break;
+          }
         }
       }
     }
@@ -279,8 +261,7 @@ GenericRateLimiter::GeneratePriorityIterationOrderLocked() {
 void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
   TEST_SYNC_POINT_CALLBACK(
       "GenericRateLimiter::RefillBytesAndGrantRequestsLocked", &request_mutex_);
-  next_refill_us_ = NowMicrosMonotonicLocked() +
-                    refill_period_us_.load(std::memory_order_relaxed);
+  next_refill_us_ = NowMicrosMonotonicLocked() + refill_period_us_;
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
@@ -318,28 +299,13 @@ void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
 
 int64_t GenericRateLimiter::CalculateRefillBytesPerPeriodLocked(
     int64_t rate_bytes_per_sec) {
-  int64_t refill_period_us = refill_period_us_.load(std::memory_order_relaxed);
   if (std::numeric_limits<int64_t>::max() / rate_bytes_per_sec <
-      refill_period_us) {
+      refill_period_us_) {
     // Avoid unexpected result in the overflow case. The result now is still
     // inaccurate but is a number that is large enough.
-    return std::numeric_limits<int64_t>::max() / kMicrosecondsPerSecond;
+    return std::numeric_limits<int64_t>::max() / 1000000;
   } else {
-    return rate_bytes_per_sec * refill_period_us / kMicrosecondsPerSecond;
-  }
-}
-
-int64_t GenericRateLimiter::CalculateRefillPeriodUsLocked(
-    int64_t single_burst_bytes) {
-  int64_t rate_bytes_per_sec =
-      rate_bytes_per_sec_.load(std::memory_order_relaxed);
-  if (std::numeric_limits<int64_t>::max() / single_burst_bytes <
-      kMicrosecondsPerSecond) {
-    // Avoid unexpected result in the overflow case. The result now is still
-    // inaccurate but is a number that is large enough.
-    return std::numeric_limits<int64_t>::max() / rate_bytes_per_sec;
-  } else {
-    return single_burst_bytes * kMicrosecondsPerSecond / rate_bytes_per_sec;
+    return rate_bytes_per_sec * refill_period_us_ / 1000000;
   }
 }
 
@@ -354,11 +320,10 @@ Status GenericRateLimiter::TuneLocked() {
   std::chrono::microseconds prev_tuned_time = tuned_time_;
   tuned_time_ = std::chrono::microseconds(NowMicrosMonotonicLocked());
 
-  int64_t refill_period_us = refill_period_us_.load(std::memory_order_relaxed);
   int64_t elapsed_intervals = (tuned_time_ - prev_tuned_time +
-                               std::chrono::microseconds(refill_period_us) -
+                               std::chrono::microseconds(refill_period_us_) -
                                std::chrono::microseconds(1)) /
-                              std::chrono::microseconds(refill_period_us);
+                              std::chrono::microseconds(refill_period_us_);
   // We tune every kRefillsPerTune intervals, so the overflow and division-by-
   // zero conditions should never happen.
   assert(num_drains_ <= std::numeric_limits<int64_t>::max() / 100);

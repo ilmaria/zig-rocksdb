@@ -120,7 +120,6 @@ struct IOOptions {
   // directories and list only files in GetChildren API.
   bool do_not_recurse;
 
-  // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
   IOOptions() : IOOptions(false) {}

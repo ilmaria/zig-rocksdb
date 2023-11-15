@@ -149,7 +149,6 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     ASSERT_TRUE(iter->Valid());
     StopWatchNano timer2(SystemClock::Default().get(), true);
     iter->Next();
-    ASSERT_OK(iter->status());
     auto elapsed_nanos2 = timer2.ElapsedNanos();
     if (FLAGS_verbose) {
       std::cout << "next cmp: " << get_perf_context()->user_key_comparison_count
@@ -1093,7 +1092,6 @@ TEST_F(PerfContextTest, MergeOperandCount) {
 
         get_perf_context()->Reset();
       }
-      ASSERT_OK(it->status());
     }
 
     // Backward iteration
@@ -1106,7 +1104,6 @@ TEST_F(PerfContextTest, MergeOperandCount) {
 
         get_perf_context()->Reset();
       }
-      ASSERT_OK(it->status());
     }
   };
 

@@ -59,17 +59,11 @@ Status CompactedDBImpl::Get(const ReadOptions& _read_options,
 
   assert(user_comparator_);
   if (read_options.timestamp) {
-    Status s =
-        FailIfTsMismatchCf(DefaultColumnFamily(), *(read_options.timestamp));
+    const Status s =
+        FailIfTsMismatchCf(DefaultColumnFamily(), *(read_options.timestamp),
+                           /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
-    }
-    if (read_options.timestamp->size() > 0) {
-      s = FailIfReadCollapsedHistory(cfd_, cfd_->GetSuperVersion(),
-                                     *(read_options.timestamp));
-      if (!s.ok()) {
-        return s;
-      }
     }
   } else {
     const Status s = FailIfCfHasTs(DefaultColumnFamily());
@@ -139,16 +133,10 @@ std::vector<Status> CompactedDBImpl::MultiGet(
 
   if (read_options.timestamp) {
     Status s =
-        FailIfTsMismatchCf(DefaultColumnFamily(), *(read_options.timestamp));
+        FailIfTsMismatchCf(DefaultColumnFamily(), *(read_options.timestamp),
+                           /*ts_for_read=*/true);
     if (!s.ok()) {
       return std::vector<Status>(num_keys, s);
-    }
-    if (read_options.timestamp->size() > 0) {
-      s = FailIfReadCollapsedHistory(cfd_, cfd_->GetSuperVersion(),
-                                     *(read_options.timestamp));
-      if (!s.ok()) {
-        return std::vector<Status>(num_keys, s);
-      }
     }
   } else {
     Status s = FailIfCfHasTs(DefaultColumnFamily());

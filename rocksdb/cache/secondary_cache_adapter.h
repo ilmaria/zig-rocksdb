@@ -20,12 +20,10 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
 
   ~CacheWithSecondaryAdapter() override;
 
-  Status Insert(
-      const Slice& key, ObjectPtr value, const CacheItemHelper* helper,
-      size_t charge, Handle** handle = nullptr,
-      Priority priority = Priority::LOW,
-      const Slice& compressed_value = Slice(),
-      CompressionType type = CompressionType::kNoCompression) override;
+  Status Insert(const Slice& key, ObjectPtr value,
+                const CacheItemHelper* helper, size_t charge,
+                Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override;
 
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                  CreateContext* create_context,
@@ -44,16 +42,6 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   std::string GetPrintableOptions() const override;
 
   const char* Name() const override;
-
-  void SetCapacity(size_t capacity) override;
-
-  Status GetSecondaryCacheCapacity(size_t& size) const override;
-
-  Status GetSecondaryCachePinnedUsage(size_t& size) const override;
-
-  Status UpdateCacheReservationRatio(double ratio);
-
-  Status UpdateAdmissionPolicy(TieredAdmissionPolicy adm_policy);
 
   Cache* TEST_GetCache() { return target_.get(); }
 
@@ -84,11 +72,7 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   std::shared_ptr<ConcurrentCacheReservationManager> pri_cache_res_;
   // Fraction of a cache memory reservation to be assigned to the secondary
   // cache
-  std::atomic<double> sec_cache_res_ratio_;
-  mutable port::Mutex mutex_;
-#ifndef NDEBUG
-  bool ratio_changed_ = false;
-#endif
+  double sec_cache_res_ratio_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

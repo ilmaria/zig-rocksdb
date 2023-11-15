@@ -193,7 +193,6 @@ TEST_P(StringAppendOperatorTest, IteratorTest) {
       ASSERT_EQ(res, "a1,a2,a3");
     }
   }
-  ASSERT_OK(it->status());
 
   // Should release the snapshot and be aware of the new stuff now
   it.reset(db_->NewIterator(ReadOptions()));
@@ -218,7 +217,6 @@ TEST_P(StringAppendOperatorTest, IteratorTest) {
       ASSERT_EQ(res, "a1,a2,a3,a4");
     }
   }
-  ASSERT_OK(it->status());
 
   slists.Append("k3", "g1");
 
@@ -244,7 +242,6 @@ TEST_P(StringAppendOperatorTest, IteratorTest) {
       ASSERT_EQ(res, "g1");
     }
   }
-  ASSERT_OK(it->status());
 }
 
 TEST_P(StringAppendOperatorTest, SimpleTest) {

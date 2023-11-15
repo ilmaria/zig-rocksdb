@@ -233,7 +233,6 @@ class SpecialEnv : public EnvWrapper {
       size_t GetUniqueId(char* id, size_t max_size) const override {
         return base_->GetUniqueId(id, max_size);
       }
-      uint64_t GetFileSize() final { return base_->GetFileSize(); }
     };
     class ManifestFile : public WritableFile {
      public:
@@ -346,7 +345,6 @@ class SpecialEnv : public EnvWrapper {
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
-      uint64_t GetFileSize() final { return base_->GetFileSize(); }
 
      private:
       SpecialEnv* env_;
@@ -938,9 +936,8 @@ class TargetCacheChargeTrackingCache : public CacheWrapper {
 
   Status Insert(const Slice& key, ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr, Priority priority = Priority::LOW,
-                const Slice& compressed = Slice(),
-                CompressionType type = kNoCompression) override;
+                Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override;
 
   using Cache::Release;
   bool Release(Handle* handle, bool erase_if_last_ref = false) override;

@@ -169,8 +169,7 @@ class SimCacheImpl : public SimCache {
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge, Handle** handle,
-                Priority priority, const Slice& compressed = {},
-                CompressionType type = kNoCompression) override {
+                Priority priority) override {
     // The handle and value passed in are for real cache, so we pass nullptr
     // to key_only_cache_ for both instead. Also, the deleter function pointer
     // will be called by user to perform some external operation which should
@@ -179,9 +178,8 @@ class SimCacheImpl : public SimCache {
     Handle* h = key_only_cache_->Lookup(key);
     if (h == nullptr) {
       // TODO: Check for error here?
-      auto s =
-          key_only_cache_->Insert(key, nullptr, &kNoopCacheItemHelper, charge,
-                                  nullptr, priority, compressed, type);
+      auto s = key_only_cache_->Insert(key, nullptr, &kNoopCacheItemHelper,
+                                       charge, nullptr, priority);
       s.PermitUncheckedError();
     } else {
       key_only_cache_->Release(h);
@@ -191,8 +189,7 @@ class SimCacheImpl : public SimCache {
     if (!target_) {
       return Status::OK();
     }
-    return target_->Insert(key, value, helper, charge, handle, priority,
-                           compressed, type);
+    return target_->Insert(key, value, helper, charge, handle, priority);
   }
 
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper,

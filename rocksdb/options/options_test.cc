@@ -178,7 +178,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"wal_bytes_per_sync", "48"},
       {"strict_bytes_per_sync", "true"},
       {"preserve_deletes", "false"},
-      {"daily_offpeak_time_utc", ""},
   };
 
   ColumnFamilyOptions base_cf_opt;
@@ -359,7 +358,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
   ASSERT_EQ(new_db_opt.strict_bytes_per_sync, true);
-  ASSERT_EQ(new_db_opt.daily_offpeak_time_utc, "");
 
   db_options_map["max_open_files"] = "hello";
   Status s =
@@ -881,7 +879,6 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"track_and_verify_wals_in_manifest", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
-      {"daily_offpeak_time_utc", "06:30-23:30"},
   };
 
   ConfigOptions db_config_options(base_db_opt);
@@ -912,13 +909,11 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   db_config_options.ignore_unknown_options = false;
   ASSERT_OK(GetDBOptionsFromString(
       db_config_options, base_db_opt,
-      "create_if_missing=false;error_if_exists=false;max_open_files=42;"
-      "daily_offpeak_time_utc=08:30-19:00;",
+      "create_if_missing=false;error_if_exists=false;max_open_files=42;",
       &new_db_opt));
   ASSERT_EQ(new_db_opt.create_if_missing, false);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.max_open_files, 42);
-  ASSERT_EQ(new_db_opt.daily_offpeak_time_utc, "08:30-19:00");
   s = GetDBOptionsFromString(
       db_config_options, base_db_opt,
       "create_if_missing=false;error_if_exists=false;max_open_files=42;"
@@ -1588,7 +1583,6 @@ TEST_F(OptionsTest, GetMutableCFOptions) {
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   Options options;
   ColumnFamilyOptions base_opt, new_opt;
-  base_opt.comparator = test::BytewiseComparatorWithU64TsWrapper();
   Random rnd(302);
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
@@ -1609,7 +1603,6 @@ TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
                                        base_options_file_content, &new_opt));
   ASSERT_OK(
       RocksDBOptionsParser::VerifyCFOptions(config_options, base_opt, new_opt));
-  ASSERT_EQ(base_opt.comparator, new_opt.comparator);
   if (base_opt.compaction_filter) {
     delete base_opt.compaction_filter;
   }

@@ -1,3 +1,5 @@
+// In upstream RocksDB project this file is generated during build but here we use a hardcoded file.
+
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 #include <memory>

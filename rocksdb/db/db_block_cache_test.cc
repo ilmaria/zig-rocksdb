@@ -294,9 +294,7 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
 
   Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
                 const CacheItemHelper* /*helper*/, size_t /*charge*/,
-                Handle** /*handle*/, Priority /*priority*/,
-                const Slice& /*compressed*/,
-                CompressionType /*type*/) override {
+                Handle** /*handle*/, Priority /*priority*/) override {
     return Status::NotSupported();
   }
 };
@@ -389,7 +387,6 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
   while (iter->Valid()) {
     iter->Next();
   }
-  ASSERT_OK(iter->status());
   delete iter;
   iter = nullptr;
 }
@@ -631,15 +628,13 @@ class MockCache : public LRUCache {
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper, size_t charge,
-                Handle** handle, Priority priority, const Slice& compressed,
-                CompressionType type) override {
+                Handle** handle, Priority priority) override {
     if (priority == Priority::LOW) {
       low_pri_insert_count++;
     } else {
       high_pri_insert_count++;
     }
-    return LRUCache::Insert(key, value, helper, charge, handle, priority,
-                            compressed, type);
+    return LRUCache::Insert(key, value, helper, charge, handle, priority);
   }
 };
 

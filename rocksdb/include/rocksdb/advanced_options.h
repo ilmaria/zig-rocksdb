@@ -76,16 +76,9 @@ struct CompressionOptions {
   // zlib only: windowBits parameter. See https://www.zlib.net/manual.html
   int window_bits = -14;
 
-  // Compression "level" applicable to zstd, zlib, LZ4, and LZ4HC. Except for
+  // Compression "level" applicable to zstd, zlib, LZ4. Except for
   // kDefaultCompressionLevel (see above), the meaning of each value depends
-  // on the compression algorithm. Decreasing across non-
-  // `kDefaultCompressionLevel` values will either favor speed over
-  // compression ratio or have no effect.
-  //
-  // In LZ4 specifically, the absolute value of a negative `level` internally
-  // configures the `acceleration` parameter. For example, set `level=-10` for
-  // `acceleration=10`. This negation is necessary to ensure decreasing `level`
-  // values favor speed over compression ratio.
+  // on the compression algorithm.
   int level = kDefaultCompressionLevel;
 
   // zlib only: strategy parameter. See https://www.zlib.net/manual.html
@@ -275,8 +268,7 @@ struct CompactionOptionsFIFO {
 // In the future, we may add more caching layers.
 enum class CacheTier : uint8_t {
   kVolatileTier = 0,
-  kVolatileCompressedTier = 0x01,
-  kNonVolatileBlockTier = 0x02,
+  kNonVolatileBlockTier = 0x01,
 };
 
 enum UpdateStatus {     // Return status For inplace update callback
@@ -1189,6 +1181,9 @@ struct AdvancedColumnFamilyOptions {
   // refrains from flushing a memtable with data still above
   // the cutoff timestamp with best effort. If this cutoff timestamp is not set,
   // flushing continues normally.
+  // NOTE: in order for the cutoff timestamp to work properly, users of this
+  // feature need to ensure to write to a column family with globally
+  // non-decreasing user-defined timestamps.
   //
   // Users can do user-defined
   // multi-versioned read above the cutoff timestamp. When users try to read
@@ -1198,9 +1193,7 @@ struct AdvancedColumnFamilyOptions {
   // persisted to WAL even if this flag is set to `false`. The benefit of this
   // is that user-defined timestamps can be recovered with the caveat that users
   // should flush all memtables so there is no active WAL files before doing a
-  // downgrade. In order to use WAL to recover user-defined timestamps, users of
-  // this feature would want to set both `avoid_flush_during_shutdown` and
-  // `avoid_flush_during_recovery` to be true.
+  // downgrade.
   //
   // Note that setting this flag to false is not supported in combination with
   // atomic flush, or concurrent memtable write enabled by

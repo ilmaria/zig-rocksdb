@@ -124,7 +124,6 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
     ASSERT_EQ("key3", itr->key().ToString());
     itr->Next();
     ASSERT_TRUE(!itr->Valid());
-    ASSERT_OK(itr->status());
     delete itr;
 
     delete options.compaction_filter;
@@ -180,7 +179,6 @@ TEST_F(ManualCompactionTest, Test) {
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     num_keys++;
   }
-  ASSERT_OK(iter->status());
   delete iter;
   ASSERT_EQ(kNumKeys, num_keys) << "Bad number of keys";
 

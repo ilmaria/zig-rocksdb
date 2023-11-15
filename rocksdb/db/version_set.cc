@@ -39,7 +39,6 @@
 #include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/version_edit_handler.h"
-#include "db/wide/wide_columns_helper.h"
 #include "file/file_util.h"
 #include "table/compaction_merging_iterator.h"
 
@@ -957,21 +956,18 @@ class LevelIterator final : public InternalIterator {
         flevel_(flevel),
         prefix_extractor_(prefix_extractor),
         file_read_hist_(file_read_hist),
+        should_sample_(should_sample),
         caller_(caller),
+        skip_filters_(skip_filters),
+        allow_unprepared_value_(allow_unprepared_value),
         file_index_(flevel_->num_files),
+        level_(level),
         range_del_agg_(range_del_agg),
         pinned_iters_mgr_(nullptr),
         compaction_boundaries_(compaction_boundaries),
-        range_tombstone_iter_(nullptr),
-        read_seq_(read_options.snapshot
-                      ? read_options.snapshot->GetSequenceNumber()
-                      : kMaxSequenceNumber),
-        level_(level),
-        block_protection_bytes_per_key_(block_protection_bytes_per_key),
-        should_sample_(should_sample),
-        skip_filters_(skip_filters),
-        allow_unprepared_value_(allow_unprepared_value),
         is_next_read_sequential_(false),
+        block_protection_bytes_per_key_(block_protection_bytes_per_key),
+        range_tombstone_iter_(nullptr),
         to_return_sentinel_(false) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
@@ -1059,10 +1055,6 @@ class LevelIterator final : public InternalIterator {
 
   bool IsDeleteRangeSentinelKey() const override { return to_return_sentinel_; }
 
-  void SetRangeDelReadSeqno(SequenceNumber read_seq) override {
-    read_seq_ = read_seq;
-  }
-
  private:
   // Return true if at least one invalid file is seen and skipped.
   bool SkipEmptyFileForward();
@@ -1119,7 +1111,7 @@ class LevelIterator final : public InternalIterator {
         /*arena=*/nullptr, skip_filters_, level_,
         /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
         largest_compaction_key, allow_unprepared_value_,
-        block_protection_bytes_per_key_, &read_seq_, range_tombstone_iter_);
+        block_protection_bytes_per_key_, range_tombstone_iter_);
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1149,8 +1141,13 @@ class LevelIterator final : public InternalIterator {
   const std::shared_ptr<const SliceTransform>& prefix_extractor_;
 
   HistogramImpl* file_read_hist_;
+  bool should_sample_;
   TableReaderCaller caller_;
+  bool skip_filters_;
+  bool allow_unprepared_value_;
+  bool may_be_out_of_lower_bound_ = true;
   size_t file_index_;
+  int level_;
   RangeDelAggregator* range_del_agg_;
   IteratorWrapper file_iter_;  // May be nullptr
   PinnedIteratorsManager* pinned_iters_mgr_;
@@ -1158,6 +1155,10 @@ class LevelIterator final : public InternalIterator {
   // To be propagated to RangeDelAggregator in order to safely truncate range
   // tombstones.
   const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries_;
+
+  bool is_next_read_sequential_;
+
+  uint8_t block_protection_bytes_per_key_;
 
   // This is set when this level iterator is used under a merging iterator
   // that processes range tombstones. range_tombstone_iter_ points to where the
@@ -1175,29 +1176,20 @@ class LevelIterator final : public InternalIterator {
   // *range_tombstone_iter_ points to range tombstones of the current SST file
   TruncatedRangeDelIterator** range_tombstone_iter_;
 
-  // The sentinel key to be returned
-  Slice sentinel_;
-  SequenceNumber read_seq_;
-
-  int level_;
-  uint8_t block_protection_bytes_per_key_;
-  bool should_sample_;
-  bool skip_filters_;
-  bool allow_unprepared_value_;
-  bool may_be_out_of_lower_bound_ = true;
-  bool is_next_read_sequential_;
-  // Set in Seek() when a prefix seek reaches end of the current file,
-  // and the next file has a different prefix. SkipEmptyFileForward()
-  // will not move to next file when this flag is set.
-  bool prefix_exhausted_ = false;
   // Whether next/prev key is a sentinel key.
   bool to_return_sentinel_ = false;
-
+  // The sentinel key to be returned
+  Slice sentinel_;
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
   // file_iter_: !Valid() && status.().ok().
   void TrySetDeleteRangeSentinel(const Slice& boundary_key);
   void ClearSentinel() { to_return_sentinel_ = false; }
+
+  // Set in Seek() when a prefix seek reaches end of the current file,
+  // and the next file has a different prefix. SkipEmptyFileForward()
+  // will not move to next file when this flag is set.
+  bool prefix_exhausted_ = false;
 };
 
 void LevelIterator::TrySetDeleteRangeSentinel(const Slice& boundary_key) {
@@ -2013,8 +2005,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
           /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr, allow_unprepared_value,
-          mutable_cf_options_.block_protection_bytes_per_key,
-          /*range_del_read_seqno=*/nullptr, &tombstone_iter);
+          mutable_cf_options_.block_protection_bytes_per_key, &tombstone_iter);
       if (read_options.ignore_range_deletions) {
         merge_iter_builder->AddIterator(table_iter);
       } else {
@@ -2124,8 +2115,7 @@ VersionStorageInfo::VersionStorageInfo(
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
     bool _force_consistency_checks,
     EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
-    uint32_t bottommost_file_compaction_delay,
-    OffpeakTimeInfo offpeak_time_info)
+    uint32_t bottommost_file_compaction_delay)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -2157,8 +2147,7 @@ VersionStorageInfo::VersionStorageInfo(
       bottommost_file_compaction_delay_(bottommost_file_compaction_delay),
       finalized_(false),
       force_consistency_checks_(_force_consistency_checks),
-      epoch_number_requirement_(epoch_number_requirement),
-      offpeak_time_info_(offpeak_time_info) {
+      epoch_number_requirement_(epoch_number_requirement) {
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
     accumulated_raw_key_size_ = ref_vstorage->accumulated_raw_key_size_;
@@ -2202,9 +2191,9 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks,
           epoch_number_requirement,
           cfd_ == nullptr ? nullptr : cfd_->ioptions()->clock,
-          cfd_ == nullptr ? 0
-                          : mutable_cf_options.bottommost_file_compaction_delay,
-          vset->offpeak_time_info()),
+          cfd_ == nullptr
+              ? 0
+              : mutable_cf_options.bottommost_file_compaction_delay),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -2463,9 +2452,12 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                                   fp.GetHitFileLevel());
 
         if (is_blob_index && do_merge && (value || columns)) {
+          assert(!columns ||
+                 (!columns->columns().empty() &&
+                  columns->columns().front().name() == kDefaultWideColumnName));
+
           Slice blob_index =
-              value ? *value
-                    : WideColumnsHelper::GetDefaultColumn(columns->columns());
+              value ? *value : columns->columns().front().value();
 
           TEST_SYNC_POINT_CALLBACK("Version::Get::TamperWithBlobIndex",
                                    &blob_index);
@@ -2529,16 +2521,21 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
     if (value || columns) {
+      std::string result;
       // `op_failure_scope` (an output parameter) is not provided (set to
       // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
-          merge_operator_, user_key, MergeHelper::kNoBaseValue,
-          merge_context->GetOperands(), info_log_, db_statistics_, clock_,
-          /* update_num_ops_stats */ true, value ? value->GetSelf() : nullptr,
-          columns, /* op_failure_scope */ nullptr);
+          merge_operator_, user_key, nullptr, merge_context->GetOperands(),
+          &result, info_log_, db_statistics_, clock_,
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
+          /* op_failure_scope */ nullptr);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
+          *(value->GetSelf()) = std::move(result);
           value->PinSelf();
+        } else {
+          assert(columns != nullptr);
+          columns->SetPlainValue(std::move(result));
         }
       }
     }
@@ -2775,19 +2772,22 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
       // merge_operands are in saver and we hit the beginning of the key history
       // do a final merge of nullptr and operands;
+      std::string result;
+
       // `op_failure_scope` (an output parameter) is not provided (set to
       // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
-          merge_operator_, user_key, MergeHelper::kNoBaseValue,
-          iter->merge_context.GetOperands(), info_log_, db_statistics_, clock_,
-          /* update_num_ops_stats */ true,
-          iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
+          merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
+          &result, info_log_, db_statistics_, clock_,
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
           /* op_failure_scope */ nullptr);
       if (LIKELY(iter->value != nullptr)) {
+        *iter->value->GetSelf() = std::move(result);
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
       } else {
         assert(iter->columns);
+        iter->columns->SetPlainValue(std::move(result));
         range->AddValueSize(iter->columns->serialized_size());
       }
 
@@ -3584,16 +3584,26 @@ void VersionStorageInfo::ComputeCompactionScore(
     }
   }
   ComputeFilesMarkedForCompaction(max_output_level);
-  ComputeBottommostFilesMarkedForCompaction(
-      immutable_options.allow_ingest_behind);
-  ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
-  ComputeFilesMarkedForPeriodicCompaction(
-      immutable_options, mutable_cf_options.periodic_compaction_seconds,
-      max_output_level);
-  ComputeFilesMarkedForForcedBlobGC(
-      mutable_cf_options.blob_garbage_collection_age_cutoff,
-      mutable_cf_options.blob_garbage_collection_force_threshold,
-      mutable_cf_options.enable_blob_garbage_collection);
+  if (!immutable_options.allow_ingest_behind) {
+    ComputeBottommostFilesMarkedForCompaction();
+  }
+  if (mutable_cf_options.ttl > 0 &&
+      compaction_style_ == kCompactionStyleLevel) {
+    ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
+  }
+  if (mutable_cf_options.periodic_compaction_seconds > 0) {
+    ComputeFilesMarkedForPeriodicCompaction(
+        immutable_options, mutable_cf_options.periodic_compaction_seconds,
+        max_output_level);
+  }
+
+  if (mutable_cf_options.enable_blob_garbage_collection &&
+      mutable_cf_options.blob_garbage_collection_age_cutoff > 0.0 &&
+      mutable_cf_options.blob_garbage_collection_force_threshold < 1.0) {
+    ComputeFilesMarkedForForcedBlobGC(
+        mutable_cf_options.blob_garbage_collection_age_cutoff,
+        mutable_cf_options.blob_garbage_collection_force_threshold);
+  }
 
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -3623,10 +3633,9 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction(int last_level) {
 
 void VersionStorageInfo::ComputeExpiredTtlFiles(
     const ImmutableOptions& ioptions, const uint64_t ttl) {
+  assert(ttl > 0);
+
   expired_ttl_files_.clear();
-  if (ttl == 0 || compaction_style_ != CompactionStyle::kCompactionStyleLevel) {
-    return;
-  }
 
   int64_t _current_time;
   auto status = ioptions.clock->GetCurrentTime(&_current_time);
@@ -3651,10 +3660,9 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
 void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     const ImmutableOptions& ioptions,
     const uint64_t periodic_compaction_seconds, int last_level) {
+  assert(periodic_compaction_seconds > 0);
+
   files_marked_for_periodic_compaction_.clear();
-  if (periodic_compaction_seconds == 0) {
-    return;
-  }
 
   int64_t temp_current_time;
   auto status = ioptions.clock->GetCurrentTime(&temp_current_time);
@@ -3708,14 +3716,8 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
 
 void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     double blob_garbage_collection_age_cutoff,
-    double blob_garbage_collection_force_threshold,
-    bool enable_blob_garbage_collection) {
+    double blob_garbage_collection_force_threshold) {
   files_marked_for_forced_blob_gc_.clear();
-  if (!(enable_blob_garbage_collection &&
-        blob_garbage_collection_age_cutoff > 0.0 &&
-        blob_garbage_collection_force_threshold < 1.0)) {
-    return;
-  }
 
   if (blob_files_.empty()) {
     return;
@@ -4172,22 +4174,17 @@ void VersionStorageInfo::GenerateFileLocationIndex() {
   }
 }
 
-void VersionStorageInfo::UpdateOldestSnapshot(SequenceNumber seqnum,
-                                              bool allow_ingest_behind) {
+void VersionStorageInfo::UpdateOldestSnapshot(SequenceNumber seqnum) {
   assert(seqnum >= oldest_snapshot_seqnum_);
   oldest_snapshot_seqnum_ = seqnum;
   if (oldest_snapshot_seqnum_ > bottommost_files_mark_threshold_) {
-    ComputeBottommostFilesMarkedForCompaction(allow_ingest_behind);
+    ComputeBottommostFilesMarkedForCompaction();
   }
 }
 
-void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
-    bool allow_ingest_behind) {
+void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
   bottommost_files_marked_for_compaction_.clear();
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
-  if (allow_ingest_behind) {
-    return;
-  }
   // If a file's creation time is larger than creation_time_ub,
   // it is too new to be marked for compaction.
   int64_t creation_time_ub = 0;
@@ -5002,15 +4999,15 @@ struct VersionSet::ManifestWriter {
 
 Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
   assert(edit);
-  if (edit->IsInAtomicGroup()) {
+  if (edit->is_in_atomic_group_) {
     TEST_SYNC_POINT("AtomicGroupReadBuffer::AddEdit:AtomicGroup");
     if (replay_buffer_.empty()) {
-      replay_buffer_.resize(edit->GetRemainingEntries() + 1);
+      replay_buffer_.resize(edit->remaining_entries_ + 1);
       TEST_SYNC_POINT_CALLBACK(
           "AtomicGroupReadBuffer::AddEdit:FirstInAtomicGroup", edit);
     }
     read_edits_in_atomic_group_++;
-    if (read_edits_in_atomic_group_ + edit->GetRemainingEntries() !=
+    if (read_edits_in_atomic_group_ + edit->remaining_entries_ !=
         static_cast<uint32_t>(replay_buffer_.size())) {
       TEST_SYNC_POINT_CALLBACK(
           "AtomicGroupReadBuffer::AddEdit:IncorrectAtomicGroupSize", edit);
@@ -5045,13 +5042,15 @@ void AtomicGroupReadBuffer::Clear() {
   replay_buffer_.clear();
 }
 
-VersionSet::VersionSet(
-    const std::string& dbname, const ImmutableDBOptions* _db_options,
-    const FileOptions& storage_options, Cache* table_cache,
-    WriteBufferManager* write_buffer_manager, WriteController* write_controller,
-    BlockCacheTracer* const block_cache_tracer,
-    const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
-    const std::string& db_session_id, const std::string& daily_offpeak_time_utc)
+VersionSet::VersionSet(const std::string& dbname,
+                       const ImmutableDBOptions* _db_options,
+                       const FileOptions& storage_options, Cache* table_cache,
+                       WriteBufferManager* write_buffer_manager,
+                       WriteController* write_controller,
+                       BlockCacheTracer* const block_cache_tracer,
+                       const std::shared_ptr<IOTracer>& io_tracer,
+                       const std::string& db_id,
+                       const std::string& db_session_id)
     : column_family_set_(new ColumnFamilySet(
           dbname, _db_options, storage_options, table_cache,
           write_buffer_manager, write_controller, block_cache_tracer, io_tracer,
@@ -5076,8 +5075,7 @@ VersionSet::VersionSet(
       file_options_(storage_options),
       block_cache_tracer_(block_cache_tracer),
       io_tracer_(io_tracer),
-      db_session_id_(db_session_id),
-      offpeak_time_info_(OffpeakTimeInfo(daily_offpeak_time_utc)) {}
+      db_session_id_(db_session_id) {}
 
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on
@@ -5209,15 +5207,15 @@ Status VersionSet::ProcessManifestWrites(
         // don't update, then Recover can report corrupted atomic group because
         // the `remaining_entries_` do not match.
         if (!batch_edits.empty()) {
-          if (batch_edits.back()->IsInAtomicGroup() &&
-              batch_edits.back()->GetRemainingEntries() > 0) {
+          if (batch_edits.back()->is_in_atomic_group_ &&
+              batch_edits.back()->remaining_entries_ > 0) {
             assert(group_start < batch_edits.size());
             const auto& edit_list = last_writer->edit_list;
             size_t k = 0;
             while (k < edit_list.size()) {
-              if (!edit_list[k]->IsInAtomicGroup()) {
+              if (!edit_list[k]->is_in_atomic_group_) {
                 break;
-              } else if (edit_list[k]->GetRemainingEntries() == 0) {
+              } else if (edit_list[k]->remaining_entries_ == 0) {
                 ++k;
                 break;
               }
@@ -5225,10 +5223,8 @@ Status VersionSet::ProcessManifestWrites(
             }
             for (auto i = group_start; i < batch_edits.size(); ++i) {
               assert(static_cast<uint32_t>(k) <=
-                     batch_edits.back()->GetRemainingEntries());
-              batch_edits[i]->SetRemainingEntries(
-                  batch_edits[i]->GetRemainingEntries() -
-                  static_cast<uint32_t>(k));
+                     batch_edits.back()->remaining_entries_);
+              batch_edits[i]->remaining_entries_ -= static_cast<uint32_t>(k);
             }
           }
         }
@@ -5271,10 +5267,10 @@ Status VersionSet::ProcessManifestWrites(
       assert(ucmp);
       std::optional<size_t> edit_ts_sz = ucmp->timestamp_size();
       for (const auto& e : last_writer->edit_list) {
-        if (e->IsInAtomicGroup()) {
-          if (batch_edits.empty() || !batch_edits.back()->IsInAtomicGroup() ||
-              (batch_edits.back()->IsInAtomicGroup() &&
-               batch_edits.back()->GetRemainingEntries() == 0)) {
+        if (e->is_in_atomic_group_) {
+          if (batch_edits.empty() || !batch_edits.back()->is_in_atomic_group_ ||
+              (batch_edits.back()->is_in_atomic_group_ &&
+               batch_edits.back()->remaining_entries_ == 0)) {
             group_start = batch_edits.size();
           }
         } else if (group_start != std::numeric_limits<size_t>::max()) {
@@ -5313,7 +5309,7 @@ Status VersionSet::ProcessManifestWrites(
   // remaining_entries_.
   size_t k = 0;
   while (k < batch_edits.size()) {
-    while (k < batch_edits.size() && !batch_edits[k]->IsInAtomicGroup()) {
+    while (k < batch_edits.size() && !batch_edits[k]->is_in_atomic_group_) {
       ++k;
     }
     if (k == batch_edits.size()) {
@@ -5321,19 +5317,19 @@ Status VersionSet::ProcessManifestWrites(
     }
     size_t i = k;
     while (i < batch_edits.size()) {
-      if (!batch_edits[i]->IsInAtomicGroup()) {
+      if (!batch_edits[i]->is_in_atomic_group_) {
         break;
       }
-      assert(i - k + batch_edits[i]->GetRemainingEntries() ==
-             batch_edits[k]->GetRemainingEntries());
-      if (batch_edits[i]->GetRemainingEntries() == 0) {
+      assert(i - k + batch_edits[i]->remaining_entries_ ==
+             batch_edits[k]->remaining_entries_);
+      if (batch_edits[i]->remaining_entries_ == 0) {
         ++i;
         break;
       }
       ++i;
     }
-    assert(batch_edits[i - 1]->IsInAtomicGroup());
-    assert(0 == batch_edits[i - 1]->GetRemainingEntries());
+    assert(batch_edits[i - 1]->is_in_atomic_group_);
+    assert(0 == batch_edits[i - 1]->remaining_entries_);
     std::vector<VersionEdit*> tmp;
     for (size_t j = k; j != i; ++j) {
       tmp.emplace_back(batch_edits[j]);
@@ -5516,7 +5512,7 @@ Status VersionSet::ProcessManifestWrites(
       new_manifest_file_size = descriptor_log_->file()->GetFileSize();
     }
 
-    if (first_writer.edit_list.front()->IsColumnFamilyDrop()) {
+    if (first_writer.edit_list.front()->is_column_family_drop_) {
       TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:0");
       TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:1");
       TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:2");
@@ -5558,13 +5554,13 @@ Status VersionSet::ProcessManifestWrites(
 
   // Install the new versions
   if (s.ok()) {
-    if (first_writer.edit_list.front()->IsColumnFamilyAdd()) {
+    if (first_writer.edit_list.front()->is_column_family_add_) {
       assert(batch_edits.size() == 1);
       assert(new_cf_options != nullptr);
       assert(max_last_sequence == descriptor_last_sequence_);
       CreateColumnFamily(*new_cf_options, read_options,
                          first_writer.edit_list.front());
-    } else if (first_writer.edit_list.front()->IsColumnFamilyDrop()) {
+    } else if (first_writer.edit_list.front()->is_column_family_drop_) {
       assert(batch_edits.size() == 1);
       assert(max_last_sequence == descriptor_last_sequence_);
       first_writer.cfd->SetDropped();
@@ -5577,22 +5573,22 @@ Status VersionSet::ProcessManifestWrites(
       for (const auto& e : batch_edits) {
         ColumnFamilyData* cfd = nullptr;
         if (!e->IsColumnFamilyManipulation()) {
-          cfd = column_family_set_->GetColumnFamily(e->GetColumnFamily());
+          cfd = column_family_set_->GetColumnFamily(e->column_family_);
           // e would not have been added to batch_edits if its corresponding
           // column family is dropped.
           assert(cfd);
         }
         if (cfd) {
-          if (e->HasLogNumber() && e->GetLogNumber() > cfd->GetLogNumber()) {
-            cfd->SetLogNumber(e->GetLogNumber());
+          if (e->has_log_number_ && e->log_number_ > cfd->GetLogNumber()) {
+            cfd->SetLogNumber(e->log_number_);
           }
           if (e->HasFullHistoryTsLow()) {
             cfd->SetFullHistoryTsLow(e->GetFullHistoryTsLow());
           }
         }
-        if (e->HasMinLogNumberToKeep()) {
+        if (e->has_min_log_number_to_keep_) {
           last_min_log_number_to_keep =
-              std::max(last_min_log_number_to_keep, e->GetMinLogNumberToKeep());
+              std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
         }
       }
 
@@ -5609,7 +5605,7 @@ Status VersionSet::ProcessManifestWrites(
     descriptor_last_sequence_ = max_last_sequence;
     manifest_file_number_ = pending_manifest_file_number_;
     manifest_file_size_ = new_manifest_file_size;
-    prev_log_number_ = first_writer.edit_list.front()->GetPrevLogNumber();
+    prev_log_number_ = first_writer.edit_list.front()->prev_log_number_;
   } else {
     std::string version_edits;
     for (auto& e : batch_edits) {
@@ -5757,7 +5753,7 @@ Status VersionSet::LogAndApply(
   int num_cfds = static_cast<int>(column_family_datas.size());
   if (num_cfds == 1 && column_family_datas[0] == nullptr) {
     assert(edit_lists.size() == 1 && edit_lists[0].size() == 1);
-    assert(edit_lists[0][0]->IsColumnFamilyAdd());
+    assert(edit_lists[0][0]->is_column_family_add_);
     assert(new_cf_options != nullptr);
   }
   std::deque<ManifestWriter> writers;
@@ -5821,7 +5817,7 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
   edit->SetNextFile(next_file_number_.load());
   assert(!edit->HasLastSequence());
   edit->SetLastSequence(*max_last_sequence);
-  if (edit->IsColumnFamilyDrop()) {
+  if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
     edit->SetMaxColumnFamily(column_family_set_->GetMaxColumnFamily());
@@ -5839,12 +5835,12 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   assert(!edit->IsColumnFamilyManipulation());
   assert(max_last_sequence != nullptr);
 
-  if (edit->HasLogNumber()) {
-    assert(edit->GetLogNumber() >= cfd->GetLogNumber());
-    assert(edit->GetLogNumber() < next_file_number_.load());
+  if (edit->has_log_number_) {
+    assert(edit->log_number_ >= cfd->GetLogNumber());
+    assert(edit->log_number_ < next_file_number_.load());
   }
 
-  if (!edit->HasPrevLogNumber()) {
+  if (!edit->has_prev_log_number_) {
     edit->SetPrevLogNumber(prev_log_number_);
   }
   edit->SetNextFile(next_file_number_.load());
@@ -5936,7 +5932,7 @@ Status VersionSet::Recover(
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
-      log_number = handler.GetVersionEditParams().GetLogNumber();
+      log_number = handler.GetVersionEditParams().log_number_;
       current_manifest_file_size = reader.GetReadOffset();
       assert(current_manifest_file_size != 0);
       handler.GetDbId(db_id);
@@ -6204,7 +6200,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc,
                       nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
                       /*db_id*/ "",
-                      /*db_session_id*/ "", options->daily_offpeak_time_utc);
+                      /*db_session_id*/ "");
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
@@ -6962,7 +6958,6 @@ InternalIterator* VersionSet::MakeInputIterator(
               /*largest_compaction_key=*/nullptr,
               /*allow_unprepared_value=*/false,
               c->mutable_cf_options()->block_protection_bytes_per_key,
-              /*range_del_read_seqno=*/nullptr,
               /*range_del_iter=*/&range_tombstone_iter);
           range_tombstones.emplace_back(range_tombstone_iter, nullptr);
         }
@@ -7107,7 +7102,7 @@ uint64_t VersionSet::GetObsoleteSstFilesSize() const {
 ColumnFamilyData* VersionSet::CreateColumnFamily(
     const ColumnFamilyOptions& cf_options, const ReadOptions& read_options,
     const VersionEdit* edit) {
-  assert(edit->IsColumnFamilyAdd());
+  assert(edit->is_column_family_add_);
 
   MutableCFOptions dummy_cf_options;
   Version* dummy_versions =
@@ -7116,7 +7111,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   // by avoiding calling "delete" explicitly (~Version is private)
   dummy_versions->Ref();
   auto new_cfd = column_family_set_->CreateColumnFamily(
-      edit->GetColumnFamilyName(), edit->GetColumnFamily(), dummy_versions,
+      edit->column_family_name_, edit->column_family_, dummy_versions,
       cf_options);
 
   Version* v = new Version(new_cfd, this, file_options_,
@@ -7133,7 +7128,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   // cfd is not available to client
   new_cfd->CreateNewMemtable(*new_cfd->GetLatestMutableCFOptions(),
                              LastSequence());
-  new_cfd->SetLogNumber(edit->GetLogNumber());
+  new_cfd->SetLogNumber(edit->log_number_);
   return new_cfd;
 }
 
@@ -7245,8 +7240,7 @@ ReactiveVersionSet::ReactiveVersionSet(
     : VersionSet(dbname, _db_options, _file_options, table_cache,
                  write_buffer_manager, write_controller,
                  /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
-                 /*db_session_id*/ "",
-                 /*daily_offpeak_time_utc*/ "") {}
+                 /*db_session_id*/ "") {}
 
 ReactiveVersionSet::~ReactiveVersionSet() {}
 

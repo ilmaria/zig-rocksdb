@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <initializer_list>
 #include <memory>
 #include <type_traits>
 
@@ -52,15 +51,6 @@ inline To lossless_cast(From x) {
                 "Only works on integral types");
   static_assert(sizeof(To) >= sizeof(FromValue), "Must be lossless");
   return static_cast<To>(x);
-}
-
-// For disambiguating a potentially heterogeneous aggregate as a homogeneous
-// initializer list. E.g. might be able to write List({x, y}) in some cases
-// instead of std::vector<const Widget&>({x, y}).
-template <typename T>
-inline const std::initializer_list<T>& List(
-    const std::initializer_list<T>& list) {
-  return list;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

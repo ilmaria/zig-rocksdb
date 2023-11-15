@@ -123,7 +123,11 @@ Status WritePreparedTxn::GetImpl(const ReadOptions& options,
 }
 
 Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options) {
-  return GetIterator(options, wpt_db_->DefaultColumnFamily());
+  // Make sure to get iterator from WritePrepareTxnDB, not the root db.
+  Iterator* db_iter = wpt_db_->NewIterator(options);
+  assert(db_iter);
+
+  return write_batch_.NewIteratorWithBase(db_iter);
 }
 
 Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
@@ -132,7 +136,7 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
   Iterator* db_iter = wpt_db_->NewIterator(options, column_family);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(column_family, db_iter, &options);
+  return write_batch_.NewIteratorWithBase(column_family, db_iter);
 }
 
 Status WritePreparedTxn::PrepareInternal() {

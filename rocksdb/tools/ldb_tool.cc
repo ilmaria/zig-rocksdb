@@ -180,3 +180,4 @@ void LDBTool::Run(int argc, char** argv, Options options,
   exit(error_code);
 }
 }  // namespace ROCKSDB_NAMESPACE
+

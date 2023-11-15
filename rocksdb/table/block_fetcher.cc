@@ -336,11 +336,9 @@ IOStatus BlockFetcher::ReadBlockContents() {
 #ifndef NDEBUG
     num_heap_buf_memcpy_++;
 #endif
-    // Save the compressed block without trailer
-    slice_ = Slice(slice_.data(), block_size_);
+    compression_type_ = kNoCompression;
   } else {
     GetBlockContents();
-    slice_ = Slice();
   }
 
   InsertUncompressedBlockToPersistentCacheIfNeeded();
@@ -389,6 +387,7 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
 #ifndef NDEBUG
           num_heap_buf_memcpy_++;
 #endif
+          compression_type_ = kNoCompression;
         } else {
           GetBlockContents();
         }

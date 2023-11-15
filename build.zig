@@ -88,6 +88,7 @@ pub fn build(b: *std.Build) !void {
 
     lib.addCSourceFiles(.{
         .files = &.{
+            "src/build_version.cc",
             "rocksdb/cache/cache_entry_roles.cc",
             "rocksdb/cache/cache_helpers.cc",
             "rocksdb/cache/cache_key.cc",
@@ -100,7 +101,6 @@ pub fn build(b: *std.Build) !void {
             "rocksdb/cache/secondary_cache_adapter.cc",
             "rocksdb/cache/secondary_cache.cc",
             "rocksdb/cache/sharded_cache.cc",
-            "rocksdb/cache/tiered_secondary_cache.cc",
             "rocksdb/db/arena_wrapped_db_iter.cc",
             "rocksdb/db/blob/blob_contents.cc",
             "rocksdb/db/blob/blob_fetcher.cc",
@@ -182,7 +182,6 @@ pub fn build(b: *std.Build) !void {
             "rocksdb/db/wal_edit.cc",
             "rocksdb/db/wal_manager.cc",
             "rocksdb/db/wide/wide_column_serialization.cc",
-            "rocksdb/db/wide/wide_columns_helper.cc",
             "rocksdb/db/wide/wide_columns.cc",
             "rocksdb/db/write_batch_base.cc",
             "rocksdb/db/write_batch.cc",
@@ -241,7 +240,6 @@ pub fn build(b: *std.Build) !void {
             "rocksdb/options/configurable.cc",
             "rocksdb/options/customizable.cc",
             "rocksdb/options/db_options.cc",
-            "rocksdb/options/offpeak_time_info.cc",
             "rocksdb/options/options_helper.cc",
             "rocksdb/options/options_parser.cc",
             "rocksdb/options/options.cc",
@@ -315,7 +313,6 @@ pub fn build(b: *std.Build) !void {
             "rocksdb/trace_replay/trace_record.cc",
             "rocksdb/trace_replay/trace_replay.cc",
             "rocksdb/util/async_file_reader.cc",
-            "rocksdb/util/build_version.cc",
             "rocksdb/util/cleanable.cc",
             "rocksdb/util/coding.cc",
             "rocksdb/util/compaction_job_stats_impl.cc",

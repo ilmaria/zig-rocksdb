@@ -42,16 +42,15 @@ class PeriodicTaskScheduler {
   PeriodicTaskScheduler& operator=(const PeriodicTaskScheduler&) = delete;
   PeriodicTaskScheduler& operator=(PeriodicTaskScheduler&&) = delete;
 
-  // Register a task with its default repeat period. Thread safe call.
+  // Register a task with its default repeat period
   Status Register(PeriodicTaskType task_type, const PeriodicTaskFunc& fn);
 
   // Register a task with specified repeat period. 0 is an invalid argument
-  // (kInvalidPeriodSec). To stop the task, please use Unregister().
-  // Thread safe call.
+  // (kInvalidPeriodSec). To stop the task, please use Unregister() specifically
   Status Register(PeriodicTaskType task_type, const PeriodicTaskFunc& fn,
                   uint64_t repeat_period_seconds);
 
-  // Unregister the task. Thread safe call.
+  // Unregister the task
   Status Unregister(PeriodicTaskType task_type);
 
 #ifndef NDEBUG
@@ -106,3 +105,4 @@ class PeriodicTaskScheduler {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
+

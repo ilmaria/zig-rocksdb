@@ -165,7 +165,6 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
     AssertItersEqual(iter.get(), result_iter.get());
     is_valid = iter->Valid();
   }
-  ASSERT_OK(iter->status());
 }
 
 class DoubleComparator : public Comparator {

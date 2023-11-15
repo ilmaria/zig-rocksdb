@@ -36,10 +36,6 @@ class TruncatedRangeDelIterator {
       const InternalKeyComparator* icmp, const InternalKey* smallest,
       const InternalKey* largest);
 
-  void SetRangeDelReadSeqno(SequenceNumber read_seqno) {
-    iter_->SetRangeDelReadSeqno(read_seqno);
-  }
-
   bool Valid() const;
 
   void Next() { iter_->TopNext(); }

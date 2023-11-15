@@ -30,7 +30,7 @@ namespace ROCKSDB_NAMESPACE {
 // arena mutexes.
 class JemallocNodumpAllocator : public BaseMemoryAllocator {
  public:
-  explicit JemallocNodumpAllocator(const JemallocAllocatorOptions& options);
+  explicit JemallocNodumpAllocator(JemallocAllocatorOptions& options);
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
   ~JemallocNodumpAllocator();
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR

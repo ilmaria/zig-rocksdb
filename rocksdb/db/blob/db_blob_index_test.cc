@@ -96,13 +96,9 @@ class DBBlobIndexTest : public DBTestBase {
   }
 
   ArenaWrappedDBIter* GetBlobIterator() {
-    ColumnFamilyData* column_family = cfd();
-    DBImpl* db_impl = dbfull();
-    return db_impl->NewIteratorImpl(
-        ReadOptions(), column_family,
-        column_family->GetReferencedSuperVersion(db_impl),
-        db_impl->GetLatestSequenceNumber(), nullptr /*read_callback*/,
-        true /*expose_blob_index*/);
+    return dbfull()->NewIteratorImpl(
+        ReadOptions(), cfd(), dbfull()->GetLatestSequenceNumber(),
+        nullptr /*read_callback*/, true /*expose_blob_index*/);
   }
 
   Options GetTestOptions() {

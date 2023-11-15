@@ -63,7 +63,7 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
       UncompressionDict::GetEmptyDict(), uncompression_dict, get_context,
       lookup_context,
       /* for_compaction */ false, use_cache,
-      /* async_read */ false, /* use_block_cache_for_lookup */ true);
+      /* async_read */ false);
 
   if (!s.ok()) {
     ROCKS_LOG_WARN(

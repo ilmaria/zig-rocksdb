@@ -109,9 +109,9 @@ class Mutex {
 
   bool TryLock();
 
-  // This will fail assertion if the mutex is not locked.
-  // It does NOT verify that mutex is held by a calling thread.
-  void AssertHeld() const;
+  // this will assert if the mutex is not locked
+  // it does NOT verify that mutex is held by a calling thread
+  void AssertHeld();
 
   // Also implement std Lockable
   inline void lock() { Lock(); }
@@ -139,7 +139,7 @@ class RWMutex {
   void WriteLock();
   void ReadUnlock();
   void WriteUnlock();
-  void AssertHeld() const {}
+  void AssertHeld() {}
 
  private:
   pthread_rwlock_t mu_;  // the underlying platform mutex
@@ -149,9 +149,6 @@ class CondVar {
  public:
   explicit CondVar(Mutex* mu);
   ~CondVar();
-
-  Mutex* GetMutex() const { return mu_; }
-
   void Wait();
   // Timed condition wait.  Returns true if timeout occurred.
   bool TimedWait(uint64_t abs_time_us);

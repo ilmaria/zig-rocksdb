@@ -24,9 +24,13 @@ class DBImplReadOnly : public DBImpl {
   virtual ~DBImplReadOnly();
 
   // Implementations of the DB interface
-  using DBImpl::GetImpl;
-  Status GetImpl(const ReadOptions& options, const Slice& key,
-                 GetImplOptions& get_impl_options) override;
+  using DB::Get;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, std::string* timestamp) override;
 
   // TODO: Implement ReadOnly MultiGet?
 

@@ -16,8 +16,6 @@
 
 #include "db/blob/blob_index.h"
 #include "db/memtable.h"
-#include "db/wide/wide_column_serialization.h"
-#include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "options/cf_options.h"
 #include "port/port.h"
@@ -38,7 +36,6 @@
 #include "table/table_reader.h"
 #include "util/compression.h"
 #include "util/random.h"
-#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -459,20 +456,10 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
       read_options_, moptions_.prefix_extractor.get(),
       /*arena=*/nullptr, /*skip_filters=*/false,
       TableReaderCaller::kSSTDumpTool);
-
-  const Comparator* ucmp = internal_comparator_.user_comparator();
-  size_t ts_sz = ucmp->timestamp_size();
-
-  Slice from_slice = from_key;
-  Slice to_slice = to_key;
-  std::string from_key_buf, to_key_buf;
-  auto [from, to] = MaybeAddTimestampsToRange(
-      has_from ? &from_slice : nullptr, has_to ? &to_slice : nullptr, ts_sz,
-      &from_key_buf, &to_key_buf);
   uint64_t i = 0;
-  if (from.has_value()) {
+  if (has_from) {
     InternalKey ikey;
-    ikey.SetMinPossibleForUserKey(from.value());
+    ikey.SetMinPossibleForUserKey(from_key);
     iter->Seek(ikey.Encode());
   } else {
     iter->SeekToFirst();
@@ -496,29 +483,15 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     }
 
     // If end marker was specified, we stop before it
-    if (to.has_value() && ucmp->Compare(ikey.user_key, to.value()) >= 0) {
+    if (has_to && BytewiseComparator()->Compare(ikey.user_key, to_key) >= 0) {
       break;
     }
 
     if (print_kv) {
       if (!decode_blob_index_ || ikey.type != kTypeBlobIndex) {
-        if (ikey.type == kTypeWideColumnEntity) {
-          std::ostringstream oss;
-          const Status s = WideColumnsHelper::DumpSliceAsWideColumns(
-              iter->value(), oss, output_hex_);
-          if (!s.ok()) {
-            fprintf(stderr, "%s => error deserializing wide columns\n",
-                    ikey.DebugString(true, output_hex_).c_str());
-            continue;
-          }
-          fprintf(stdout, "%s => %s\n",
-                  ikey.DebugString(true, output_hex_).c_str(),
-                  oss.str().c_str());
-        } else {
-          fprintf(stdout, "%s => %s\n",
-                  ikey.DebugString(true, output_hex_).c_str(),
-                  value.ToString(output_hex_).c_str());
-        }
+        fprintf(stdout, "%s => %s\n",
+                ikey.DebugString(true, output_hex_).c_str(),
+                value.ToString(output_hex_).c_str());
       } else {
         BlobIndex blob_index;
 

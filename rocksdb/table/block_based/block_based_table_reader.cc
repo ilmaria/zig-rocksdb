@@ -88,23 +88,19 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
 // Explicitly instantiate templates for each "blocklike" type we use (and
 // before implicit specialization).
 // This makes it possible to keep the template definitions in the .cc file.
-#define INSTANTIATE_BLOCKLIKE_TEMPLATES(T)                                     \
-  template Status BlockBasedTable::RetrieveBlock<T>(                           \
-      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,             \
-      const BlockHandle& handle, const UncompressionDict& uncompression_dict,  \
-      CachableEntry<T>* out_parsed_block, GetContext* get_context,             \
-      BlockCacheLookupContext* lookup_context, bool for_compaction,            \
-      bool use_cache, bool async_read, bool use_block_cache_for_lookup) const; \
-  template Status BlockBasedTable::MaybeReadBlockAndLoadToCache<T>(            \
-      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,             \
-      const BlockHandle& handle, const UncompressionDict& uncompression_dict,  \
-      bool for_compaction, CachableEntry<T>* block_entry,                      \
-      GetContext* get_context, BlockCacheLookupContext* lookup_context,        \
-      BlockContents* contents, bool async_read,                                \
-      bool use_block_cache_for_lookup) const;                                  \
-  template Status BlockBasedTable::LookupAndPinBlocksInCache<T>(               \
-      const ReadOptions& ro, const BlockHandle& handle,                        \
-      CachableEntry<T>* out_parsed_block) const;
+#define INSTANTIATE_BLOCKLIKE_TEMPLATES(T)                                    \
+  template Status BlockBasedTable::RetrieveBlock<T>(                          \
+      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,            \
+      const BlockHandle& handle, const UncompressionDict& uncompression_dict, \
+      CachableEntry<T>* out_parsed_block, GetContext* get_context,            \
+      BlockCacheLookupContext* lookup_context, bool for_compaction,           \
+      bool use_cache, bool async_read) const;                                 \
+  template Status BlockBasedTable::MaybeReadBlockAndLoadToCache<T>(           \
+      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,            \
+      const BlockHandle& handle, const UncompressionDict& uncompression_dict, \
+      bool for_compaction, CachableEntry<T>* block_entry,                     \
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,       \
+      BlockContents* contents, bool async_read) const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(UncompressionDict);
@@ -686,7 +682,7 @@ Status BlockBasedTable::Open(
        rep->table_properties->compression_name ==
            CompressionTypeToString(kZSTDNotFinalCompression));
   rep->create_context = BlockCreateContext(
-      &rep->table_options, &rep->ioptions, rep->ioptions.stats,
+      &rep->table_options, rep->ioptions.stats,
       blocks_definitely_zstd_compressed, block_protection_bytes_per_key,
       rep->internal_comparator.user_comparator(), rep->index_value_is_full,
       rep->index_has_first_key);
@@ -888,7 +884,6 @@ Status BlockBasedTable::PrefetchTail(
       true /* track_min_offset */, false /* implicit_auto_readahead */,
       0 /* num_file_reads */, 0 /* num_file_reads_for_auto_readahead */,
       0 /* upper_bound_offset */, nullptr /* fs */, nullptr /* clock */, stats,
-      /* readahead_cb */ nullptr,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
   if (s.ok()) {
@@ -999,8 +994,7 @@ Status BlockBasedTable::ReadRangeDelBlock(
         read_options, range_del_handle,
         /*input_iter=*/nullptr, BlockType::kRangeDeletion,
         /*get_context=*/nullptr, lookup_context, prefetch_buffer,
-        /*for_compaction= */ false, /*async_read= */ false, tmp_status,
-        /*use_block_cache_for_lookup=*/true));
+        /*for_compaction= */ false, /*async_read= */ false, tmp_status));
     assert(iter != nullptr);
     s = iter->status();
     if (!s.ok()) {
@@ -1307,8 +1301,8 @@ Cache::Priority BlockBasedTable::GetCachePriority() const {
 template <typename TBlocklike>
 WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
     const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-    CachableEntry<TBlocklike>* out_parsed_block, GetContext* get_context,
-    const UncompressionDict* dict) const {
+    CachableEntry<TBlocklike>* out_parsed_block,
+    GetContext* get_context) const {
   assert(out_parsed_block);
   assert(out_parsed_block->IsEmpty());
 
@@ -1317,12 +1311,10 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
 
   // Lookup uncompressed cache first
   if (block_cache) {
-    BlockCreateContext create_ctx = rep_->create_context;
-    create_ctx.dict = dict;
     assert(!cache_key.empty());
     auto cache_handle = block_cache.LookupFull(
-        cache_key, &create_ctx, GetCachePriority<TBlocklike>(), statistics,
-        rep_->ioptions.lowest_used_cache_tier);
+        cache_key, &rep_->create_context, GetCachePriority<TBlocklike>(),
+        statistics, rep_->ioptions.lowest_used_cache_tier);
 
     // Avoid updating metrics here if the handle is not complete yet. This
     // happens with MultiGet and secondary cache. So update the metrics only
@@ -1349,9 +1341,8 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
 template <typename TBlocklike>
 WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-    CachableEntry<TBlocklike>* out_parsed_block,
-    BlockContents&& uncompressed_block_contents,
-    BlockContents&& compressed_block_contents, CompressionType block_comp_type,
+    CachableEntry<TBlocklike>* out_parsed_block, BlockContents&& block_contents,
+    CompressionType block_comp_type,
     const UncompressionDict& uncompression_dict,
     MemoryAllocator* memory_allocator, GetContext* get_context) const {
   const ImmutableOptions& ioptions = rep_->ioptions;
@@ -1363,22 +1354,23 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
   Statistics* statistics = ioptions.stats;
 
   std::unique_ptr<TBlocklike> block_holder;
-  if (block_comp_type != kNoCompression &&
-      uncompressed_block_contents.data.empty()) {
-    assert(compressed_block_contents.data.data());
+  if (block_comp_type != kNoCompression) {
     // Retrieve the uncompressed contents into a new buffer
+    BlockContents uncompressed_block_contents;
     UncompressionContext context(block_comp_type);
     UncompressionInfo info(context, uncompression_dict, block_comp_type);
-    s = UncompressBlockData(info, compressed_block_contents.data.data(),
-                            compressed_block_contents.data.size(),
+    s = UncompressBlockData(info, block_contents.data.data(),
+                            block_contents.data.size(),
                             &uncompressed_block_contents, format_version,
                             ioptions, memory_allocator);
     if (!s.ok()) {
       return s;
     }
+    rep_->create_context.Create(&block_holder,
+                                std::move(uncompressed_block_contents));
+  } else {
+    rep_->create_context.Create(&block_holder, std::move(block_contents));
   }
-  rep_->create_context.Create(&block_holder,
-                              std::move(uncompressed_block_contents));
 
   // insert into uncompressed block cache
   if (block_cache && block_holder->own_bytes()) {
@@ -1386,8 +1378,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     BlockCacheTypedHandle<TBlocklike>* cache_handle = nullptr;
     s = block_cache.InsertFull(cache_key, block_holder.get(), charge,
                                &cache_handle, GetCachePriority<TBlocklike>(),
-                               rep_->ioptions.lowest_used_cache_tier,
-                               compressed_block_contents.data, block_comp_type);
+                               rep_->ioptions.lowest_used_cache_tier);
 
     if (s.ok()) {
       assert(cache_handle != nullptr);
@@ -1474,62 +1465,6 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
       block_contents_pinned, rep->user_defined_timestamps_persisted);
 }
 
-// Right now only called for Data blocks.
-template <typename TBlocklike>
-Status BlockBasedTable::LookupAndPinBlocksInCache(
-    const ReadOptions& ro, const BlockHandle& handle,
-    CachableEntry<TBlocklike>* out_parsed_block) const {
-  BlockCacheInterface<TBlocklike> block_cache{
-      rep_->table_options.block_cache.get()};
-
-  assert(block_cache);
-
-  Status s;
-  CachableEntry<UncompressionDict> uncompression_dict;
-  if (rep_->uncompression_dict_reader) {
-    const bool no_io = (ro.read_tier == kBlockCacheTier);
-    s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        /* prefetch_buffer= */ nullptr, ro, no_io, ro.verify_checksums,
-        /* get_context= */ nullptr, /* lookup_context= */ nullptr,
-        &uncompression_dict);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  // Do the lookup.
-  CacheKey key_data = GetCacheKey(rep_->base_cache_key, handle);
-  const Slice key = key_data.AsSlice();
-
-  Statistics* statistics = rep_->ioptions.statistics.get();
-
-  BlockCreateContext create_ctx = rep_->create_context;
-  create_ctx.dict = uncompression_dict.GetValue()
-                        ? uncompression_dict.GetValue()
-                        : &UncompressionDict::GetEmptyDict();
-
-  auto cache_handle =
-      block_cache.LookupFull(key, &create_ctx, GetCachePriority<TBlocklike>(),
-                             statistics, rep_->ioptions.lowest_used_cache_tier);
-
-  if (!cache_handle) {
-    UpdateCacheMissMetrics(TBlocklike::kBlockType, /* get_context = */ nullptr);
-    return s;
-  }
-
-  // Found in Cache.
-  TBlocklike* value = block_cache.Value(cache_handle);
-  if (value) {
-    UpdateCacheHitMetrics(TBlocklike::kBlockType, /* get_context = */ nullptr,
-                          block_cache.get()->GetUsage(cache_handle));
-  }
-  out_parsed_block->SetCachedValue(value, block_cache.get(), cache_handle);
-
-  assert(!out_parsed_block->IsEmpty());
-
-  return s;
-}
-
 // If contents is nullptr, this function looks up the block caches for the
 // data block referenced by handle, and read the block from disk if necessary.
 // If contents is non-null, it skips the cache lookup and disk read, since
@@ -1542,12 +1477,12 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     bool for_compaction, CachableEntry<TBlocklike>* out_parsed_block,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    BlockContents* contents, bool async_read,
-    bool use_block_cache_for_lookup) const {
+    BlockContents* contents, bool async_read) const {
   assert(out_parsed_block != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   BlockCacheInterface<TBlocklike> block_cache{
       rep_->table_options.block_cache.get()};
+
   // First, try to get the block from the cache
   //
   // If either block cache is enabled, we'll try to read from it.
@@ -1561,25 +1496,21 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
     key = key_data.AsSlice();
 
     if (!contents) {
-      if (use_block_cache_for_lookup) {
-        s = GetDataBlockFromCache(key, block_cache, out_parsed_block,
-                                  get_context, &uncompression_dict);
-        // Value could still be null at this point, so check the cache handle
-        // and update the read pattern for prefetching
-        if (out_parsed_block->GetValue() ||
-            out_parsed_block->GetCacheHandle()) {
-          // TODO(haoyu): Differentiate cache hit on uncompressed block cache
-          // and compressed block cache.
-          is_cache_hit = true;
-          if (prefetch_buffer) {
-            // Update the block details so that PrefetchBuffer can use the read
-            // pattern to determine if reads are sequential or not for
-            // prefetching. It should also take in account blocks read from
-            // cache.
-            prefetch_buffer->UpdateReadPattern(
-                handle.offset(), BlockSizeWithTrailer(handle),
-                ro.adaptive_readahead /*decrease_readahead_size*/);
-          }
+      s = GetDataBlockFromCache(key, block_cache, out_parsed_block,
+                                get_context);
+      // Value could still be null at this point, so check the cache handle
+      // and update the read pattern for prefetching
+      if (out_parsed_block->GetValue() || out_parsed_block->GetCacheHandle()) {
+        // TODO(haoyu): Differentiate cache hit on uncompressed block cache and
+        // compressed block cache.
+        is_cache_hit = true;
+        if (prefetch_buffer) {
+          // Update the block details so that PrefetchBuffer can use the read
+          // pattern to determine if reads are sequential or not for
+          // prefetching. It should also take in account blocks read from cache.
+          prefetch_buffer->UpdateReadPattern(
+              handle.offset(), BlockSizeWithTrailer(handle),
+              ro.adaptive_readahead /*decrease_readahead_size*/);
         }
       }
     }
@@ -1594,26 +1525,14 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           TBlocklike::kBlockType != BlockType::kFilter &&
           TBlocklike::kBlockType != BlockType::kCompressionDictionary &&
           rep_->blocks_maybe_compressed;
-      // This flag, if true, tells BlockFetcher to return the uncompressed
-      // block when ReadBlockContents() is called.
       const bool do_uncompress = maybe_compressed;
       CompressionType contents_comp_type;
       // Maybe serialized or uncompressed
       BlockContents tmp_contents;
-      BlockContents uncomp_contents;
-      BlockContents comp_contents;
       if (!contents) {
         Histograms histogram = for_compaction ? READ_BLOCK_COMPACTION_MICROS
                                               : READ_BLOCK_GET_MICROS;
         StopWatch sw(rep_->ioptions.clock, statistics, histogram);
-        // Setting do_uncompress to false may cause an extra mempcy in the
-        // following cases -
-        // 1. Compression is enabled, but block is not actually compressed
-        // 2. Compressed block is in the prefetch buffer
-        // 3. Direct IO
-        //
-        // It would also cause a memory allocation to be used rather than
-        // stack if the compressed block size is < 5KB
         BlockFetcher block_fetcher(
             rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
             &tmp_contents, rep_->ioptions, do_uncompress, maybe_compressed,
@@ -1634,6 +1553,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
         }
 
         contents_comp_type = block_fetcher.get_compression_type();
+        contents = &tmp_contents;
         if (get_context) {
           switch (TBlocklike::kBlockType) {
             case BlockType::kIndex:
@@ -1647,43 +1567,17 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
               break;
           }
         }
-        if (s.ok()) {
-          if (do_uncompress && contents_comp_type != kNoCompression) {
-            comp_contents = BlockContents(block_fetcher.GetCompressedBlock());
-            uncomp_contents = std::move(tmp_contents);
-          } else if (contents_comp_type != kNoCompression) {
-            // do_uncompress must be false, so output of BlockFetcher is
-            // compressed
-            comp_contents = std::move(tmp_contents);
-          } else {
-            uncomp_contents = std::move(tmp_contents);
-          }
-
-          // If filling cache is allowed and a cache is configured, try to put
-          // the block to the cache. Do this here while block_fetcher is in
-          // scope, since comp_contents will be a reference to the compressed
-          // block in block_fetcher
-          s = PutDataBlockToCache(
-              key, block_cache, out_parsed_block, std::move(uncomp_contents),
-              std::move(comp_contents), contents_comp_type, uncompression_dict,
-              GetMemoryAllocator(rep_->table_options), get_context);
-        }
       } else {
         contents_comp_type = GetBlockCompressionType(*contents);
-        if (contents_comp_type != kNoCompression) {
-          comp_contents = std::move(*contents);
-        } else {
-          uncomp_contents = std::move(*contents);
-        }
+      }
 
-        if (s.ok()) {
-          // If filling cache is allowed and a cache is configured, try to put
-          // the block to the cache.
-          s = PutDataBlockToCache(
-              key, block_cache, out_parsed_block, std::move(uncomp_contents),
-              std::move(comp_contents), contents_comp_type, uncompression_dict,
-              GetMemoryAllocator(rep_->table_options), get_context);
-        }
+      if (s.ok()) {
+        // If filling cache is allowed and a cache is configured, try to put the
+        // block to the cache.
+        s = PutDataBlockToCache(
+            key, block_cache, out_parsed_block, std::move(*contents),
+            contents_comp_type, uncompression_dict,
+            GetMemoryAllocator(rep_->table_options), get_context);
       }
     }
   }
@@ -1799,7 +1693,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<TBlocklike>* out_parsed_block, GetContext* get_context,
     BlockCacheLookupContext* lookup_context, bool for_compaction,
-    bool use_cache, bool async_read, bool use_block_cache_for_lookup) const {
+    bool use_cache, bool async_read) const {
   assert(out_parsed_block);
   assert(out_parsed_block->IsEmpty());
 
@@ -1808,7 +1702,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
     s = MaybeReadBlockAndLoadToCache(
         prefetch_buffer, ro, handle, uncompression_dict, for_compaction,
         out_parsed_block, get_context, lookup_context,
-        /*contents=*/nullptr, async_read, use_block_cache_for_lookup);
+        /*contents=*/nullptr, async_read);
 
     if (!s.ok()) {
       return s;
@@ -2017,16 +1911,6 @@ FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
   return new FragmentedRangeTombstoneIterator(rep_->fragmented_range_dels,
                                               rep_->internal_comparator,
                                               snapshot, read_options.timestamp);
-}
-
-FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
-    SequenceNumber read_seqno, const Slice* timestamp) {
-  if (rep_->fragmented_range_dels == nullptr) {
-    return nullptr;
-  }
-  return new FragmentedRangeTombstoneIterator(rep_->fragmented_range_dels,
-                                              rep_->internal_comparator,
-                                              read_seqno, timestamp);
 }
 
 bool BlockBasedTable::FullFilterKeyMayMatch(
@@ -2271,8 +2155,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       NewDataBlockIterator<DataBlockIter>(
           read_options, v.handle, &biter, BlockType::kData, get_context,
           &lookup_data_block_context, /*prefetch_buffer=*/nullptr,
-          /*for_compaction=*/false, /*async_read=*/false, tmp_status,
-          /*use_block_cache_for_lookup=*/true);
+          /*for_compaction=*/false, /*async_read=*/false, tmp_status);
 
       if (no_io && biter.status().IsIncomplete()) {
         // couldn't get block from block_cache
@@ -2442,7 +2325,7 @@ Status BlockBasedTable::Prefetch(const ReadOptions& read_options,
         read_options, block_handle, &biter, /*type=*/BlockType::kData,
         /*get_context=*/nullptr, &lookup_context,
         /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
-        /*async_read=*/false, tmp_status, /*use_block_cache_for_lookup=*/true);
+        /*async_read=*/false, tmp_status);
 
     if (!biter.status().ok()) {
       // there was an unexpected error while pre-fetching
@@ -2867,7 +2750,7 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
         /*input_iter=*/nullptr, /*type=*/BlockType::kData,
         /*get_context=*/nullptr, /*lookup_context=*/nullptr,
         /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
-        /*async_read=*/false, tmp_status, /*use_block_cache_for_lookup=*/true));
+        /*async_read=*/false, tmp_status));
     s = datablock_iter->status();
 
     if (!s.ok()) {
@@ -3106,7 +2989,7 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
         /*input_iter=*/nullptr, /*type=*/BlockType::kData,
         /*get_context=*/nullptr, /*lookup_context=*/nullptr,
         /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
-        /*async_read=*/false, tmp_status, /*use_block_cache_for_lookup=*/true));
+        /*async_read=*/false, tmp_status));
     s = datablock_iter->status();
 
     if (!s.ok()) {

@@ -170,8 +170,7 @@ Status PartitionIndexReader::CacheDependencies(
     rep->CreateFilePrefetchBuffer(
         0, 0, &prefetch_buffer, false /*Implicit auto readahead*/,
         0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/,
-        /*upper_bound_offset*/ 0, /*readaheadsize_cb*/ nullptr,
-        /*usage=*/FilePrefetchBufferUsage::kUnknown);
+        /*upper_bound_offset*/ 0);
     IOOptions opts;
     {
       Status s = rep->file->PrepareIOOptions(ro, opts);
@@ -201,7 +200,7 @@ Status PartitionIndexReader::CacheDependencies(
         handle, UncompressionDict::GetEmptyDict(),
         /*for_compaction=*/false, &block.As<Block_kIndex>(),
         /*get_context=*/nullptr, &lookup_context, /*contents=*/nullptr,
-        /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
+        /*async_read=*/false);
 
     if (!s.ok()) {
       return s;

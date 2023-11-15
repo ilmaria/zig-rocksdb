@@ -99,8 +99,6 @@ class ShardedCacheBase : public Cache {
 
   bool HasStrictCapacityLimit() const override;
   size_t GetCapacity() const override;
-  Status GetSecondaryCacheCapacity(size_t& size) const override;
-  Status GetSecondaryCachePinnedUsage(size_t& size) const override;
 
   using Cache::GetUsage;
   size_t GetUsage(Handle* handle) const override;
@@ -172,12 +170,9 @@ class ShardedCache : public ShardedCacheBase {
         [s_c_l](CacheShard* cs) { cs->SetStrictCapacityLimit(s_c_l); });
   }
 
-  Status Insert(
-      const Slice& key, ObjectPtr obj, const CacheItemHelper* helper,
-      size_t charge, Handle** handle = nullptr,
-      Priority priority = Priority::LOW,
-      const Slice& /*compressed_value*/ = Slice(),
-      CompressionType /*type*/ = CompressionType::kNoCompression) override {
+  Status Insert(const Slice& key, ObjectPtr obj, const CacheItemHelper* helper,
+                size_t charge, Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override {
     assert(helper);
     HashVal hash = CacheShard::ComputeHash(key, hash_seed_);
     auto h_out = reinterpret_cast<HandleImpl**>(handle);

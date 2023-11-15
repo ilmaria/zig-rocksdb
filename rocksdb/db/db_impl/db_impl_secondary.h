@@ -85,6 +85,8 @@ class DBImplSecondary : public DBImpl {
                  bool error_if_data_exists_in_wals, uint64_t* = nullptr,
                  RecoveryContext* recovery_ctx = nullptr) override;
 
+  // Implementations of the DB interface.
+  using DB::Get;
   // Can return IOError due to files being deleted by the primary. To avoid
   // IOError in this case, application can coordinate between primary and
   // secondaries so that primary will not delete files that are currently being
@@ -94,9 +96,17 @@ class DBImplSecondary : public DBImpl {
   // workaround, the secondaries can be opened with `max_open_files=-1` so that
   // it eagerly keeps all talbe files open and is able to access the contents of
   // deleted files via prior open fd.
-  using DBImpl::GetImpl;
-  Status GetImpl(const ReadOptions& options, const Slice& key,
-                 GetImplOptions& get_impl_options) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value) override;
+
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, std::string* timestamp) override;
+
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, PinnableSlice* value,
+                 std::string* timestamp);
 
   using DBImpl::NewIterator;
   // Operations on the created iterators can return IOError due to files being
@@ -112,7 +122,7 @@ class DBImplSecondary : public DBImpl {
                         ColumnFamilyHandle* column_family) override;
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& read_options,
-                                      ColumnFamilyData* cfd, SuperVersion* sv,
+                                      ColumnFamilyData* cfd,
                                       SequenceNumber snapshot,
                                       ReadCallback* read_callback,
                                       bool expose_blob_index = false,
