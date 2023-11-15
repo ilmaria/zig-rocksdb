@@ -9,9 +9,11 @@ pub fn main() !void {
     // create the DB if it's not already present
     c.rocksdb_options_set_create_if_missing(options, 1);
 
+    try std.fs.cwd().makeDir("simple_example_db");
+
     std.debug.print("opening db\n", .{});
     var err: ?[*:0]u8 = null;
-    const db = c.rocksdb_open(options, "./", &err);
+    const db = c.rocksdb_open(options, "./simple_example_db", &err);
     assertNoErr(err);
     defer c.rocksdb_close(db);
 

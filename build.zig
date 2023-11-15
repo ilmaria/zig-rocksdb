@@ -14,11 +14,11 @@ pub fn build(b: *std.Build) !void {
     lib.addIncludePath(.{ .path = "rocksdb/include" });
     lib.linkLibCpp();
 
-    const ubsan_option = b.option(bool, "ROCKSDB_UBSAN_RUN", "Use ubsan") orelse false;
-
     var cflags = ArrayList([]const u8).init(b.allocator);
-    try cflags.append("-DPORTABLE=0");
+    try cflags.append("-DPORTABLE=1");
     try cflags.append("-std=c++17");
+    // This define allows zig to run normally in debug mode where zig uses ubsan by default.
+    try cflags.append("-DROCKSDB_UBSAN_RUN=1");
 
     // "-DROCKSDB_WINDOWS_UTF8_FILENAMES",
     // "-DCIRCLECI",
@@ -42,8 +42,6 @@ pub fn build(b: *std.Build) !void {
     // "-DCYGWIN",
     // "-D_MBCS",
     // "-DNOMINMAX",
-    // "-DROCKSDB_PLATFORM_POSIX",
-    // "-DROCKSDB_LIB_IO_POSIX",
     // "-DROCKSDB_FALLOCATE_PRESENT",
     // "-DROCKSDB_RANGESYNC_PRESENT",
     // "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
@@ -53,9 +51,6 @@ pub fn build(b: *std.Build) !void {
     // "-DHAVE_FULLFSYNC",
     // "-DUSE_FOLLY",
     // "-DFOLLY_NO_CONFIG",
-    if (ubsan_option) {
-        try cflags.append("-DROCKSDB_UBSAN_RUN=1");
-    }
 
     switch (target.getOsTag()) {
         .windows => try cflags.append("-DOS_WIN"),
@@ -490,6 +485,6 @@ pub fn build(b: *std.Build) !void {
     });
     simple_example.linkLibrary(lib);
     simple_example.addIncludePath(.{ .path = "rocksdb/include" });
-    run_example.dependOn(&b.addRunArtifact(simple_example).step);
     run_example.dependOn(&b.addInstallArtifact(simple_example, .{}).step);
+    run_example.dependOn(&b.addRunArtifact(simple_example).step);
 }
