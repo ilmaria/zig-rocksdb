@@ -5,10 +5,6 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    _ = b.addModule("rocksdb", .{
-        .source_file = .{ .path = "src/main.zig" },
-    });
-
     const lib = b.addStaticLibrary(.{
         .name = "rocksdb",
         .target = target,
@@ -17,6 +13,7 @@ pub fn build(b: *std.Build) !void {
     lib.addIncludePath(.{ .path = "rocksdb" });
     lib.addIncludePath(.{ .path = "rocksdb/include" });
     lib.linkLibCpp();
+    lib.installHeader("rocksdb/include/rocksdb/c.h", "rocksdb.h");
 
     var cflags = ArrayList([]const u8).init(b.allocator);
     try cflags.append("-DPORTABLE=1");
