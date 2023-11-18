@@ -1,21 +1,29 @@
 const std = @import("std");
 const c = @cImport({
-    @cInclude("rocksdb/c.h");
+    @cInclude("rocksdb.h");
 });
 
 pub fn main() !void {
-    var options = c.rocksdb_options_create();
-    c.rocksdb_options_optimize_level_style_compaction(options, 0);
-    // create the DB if it's not already present
-    c.rocksdb_options_set_create_if_missing(options, 1);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-    try std.fs.cwd().makeDir("simple_example_db");
+    var path_buf = [1]u8{0} ** std.fs.MAX_PATH_BYTES;
+    const tmp_path = try std.os.getFdPath(tmp.dir.fd, &path_buf);
+    // make tmp_path zero terminated
+    path_buf[tmp_path.len] = 0;
+    const tmp_path_zero_terminated = path_buf[0..tmp_path.len :0];
 
-    std.debug.print("opening db\n", .{});
+    std.debug.print("opening db {s}\n", .{tmp_path});
+
+    var db_options = c.rocksdb_options_create();
+    c.rocksdb_options_set_create_if_missing(db_options, 1);
     var err: ?[*:0]u8 = null;
-    const db = c.rocksdb_open(options, "./simple_example_db", &err);
+    const db = c.rocksdb_open(db_options, tmp_path_zero_terminated, &err);
     assertNoErr(err);
     defer c.rocksdb_close(db);
+
+    var col_family_opts = db_options;
+    c.rocksdb_options_set_comparator(col_family_opts, c.rocksdb_bytewise_comparator_with_u64_ts());
 
     std.debug.print("writing to db\n", .{});
     const writeoptions = c.rocksdb_writeoptions_create();

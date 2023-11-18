@@ -13,7 +13,8 @@ pub fn build(b: *std.Build) !void {
     lib.addIncludePath(.{ .path = "rocksdb" });
     lib.addIncludePath(.{ .path = "rocksdb/include" });
     lib.linkLibCpp();
-    lib.installHeader("rocksdb/include/rocksdb/c.h", "rocksdb.h");
+    lib.installHeader("rocksdb/include/rocksdb/c.h", "rocksdb/c.h");
+    lib.installHeader("src/rocksdb.h", "rocksdb.h");
 
     var cflags = ArrayList([]const u8).init(b.allocator);
     try cflags.append("-DPORTABLE=1");
@@ -89,6 +90,7 @@ pub fn build(b: *std.Build) !void {
 
     lib.addCSourceFiles(.{
         .files = &.{
+            "src/extra_exported_stuff.cc",
             "src/build_version.cc",
             "rocksdb/cache/cache_entry_roles.cc",
             "rocksdb/cache/cache_helpers.cc",
@@ -481,7 +483,9 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     simple_example.linkLibrary(lib);
-    simple_example.addIncludePath(.{ .path = "rocksdb/include" });
+    simple_example.installLibraryHeaders(lib);
     run_example.dependOn(&b.addInstallArtifact(simple_example, .{}).step);
+    run_example.dependOn(&b.addInstallArtifact(lib, .{}).step);
+    run_example.dependOn(&b.addRunArtifact(simple_example).step);
     run_example.dependOn(&b.addRunArtifact(simple_example).step);
 }
